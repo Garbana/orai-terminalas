@@ -22,7 +22,7 @@ const updated = new Date().toISOString();
 let ok = 0, fail = 0, added = 0, newestObs = 0, budget = MAX_CATCHUP_REQUESTS;
 
 async function fetchObs(code, date) {
-  const res = await fetch(API + code + "/observations/" + date, { headers: { accept: "application/json", "user-agent": "orai-terminalas (GitHub Actions)" } });
+  const res = await fetch(API + code + "/observations/" + date, { headers: { accept: "application/json", "user-agent": "orai-terminalas (GitHub Actions)" }, signal: AbortSignal.timeout(15000) });
   if (res.status === 404) return [];
   if (!res.ok) throw new Error(date + ": HTTP " + res.status);
   await sleep(400); // api.meteo.lt riba – 180 užklausų per minutę
@@ -73,6 +73,8 @@ for (const st of stations) {
   } catch (e) {
     console.warn(st.code + ": " + e.message);
     fail++;
+    // kai kurie GitHub serveriai api.meteo.lt nepasiekia – tada neverta tikrinti visų stočių
+    if (!ok && fail >= 3) { console.log("api.meteo.lt nepasiekiamas iš šio serverio."); process.exit(2); }
   }
 }
 

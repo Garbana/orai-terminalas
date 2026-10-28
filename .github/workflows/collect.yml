@@ -2,6 +2,7 @@ name: Rinkti matavimus
 
 # GitHub cron šioje repozitorijoje nepatikimas (valandomis nepasileidžia), todėl rinkimas veikia grandine:
 # vienas paleidimas ~5,5 val. kas 10 min. renka matavimus, o pabaigoje pats paleidžia kitą.
+# Kai kurie GitHub serveriai api.meteo.lt nepasiekia – tada paleidimas baigiasi anksčiau ir kitas gauna kitą serverį.
 # Cron – tik atsarginis, jei grandinė kada nors nutrūktų (concurrency neleidžia dviejų vienu metu).
 on:
   schedule:
@@ -30,10 +31,18 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           end=$(( $(date +%s) + 330 * 60 ))
+          unreachable=0
           while [ "$(date +%s)" -lt "$end" ]; do
             git pull -q --rebase origin main || true
             echo "--- $(date -u +%H:%M) UTC"
-            node scripts/collect.mjs || true
+            rc=0; node scripts/collect.mjs || rc=$?
+            if [ "$rc" = 2 ]; then
+              # šis serveris LHMT nepasiekia – baigiam, kitas paleidimas gaus kitą serverį
+              unreachable=$((unreachable + 1))
+              if [ "$unreachable" -ge 2 ]; then echo "Keičiamas serveris."; sleep 30; exit 1; fi
+              sleep 60; continue
+            fi
+            unreachable=0
             git add data/live
             if ! git diff --cached --quiet; then
               git commit -q -m "Matavimai $(date -u +'%Y-%m-%d %H:%M') UTC"
