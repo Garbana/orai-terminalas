@@ -466,8 +466,15 @@ let FC = null, FCB = null;
 function fcBars(tf, h) {
   if (!FC || !FC.rows || !FC.rows.length || !(tf === "1H" || tf === "4H" || tf === "1D")) return null;
   const lastLT = LT[N - 1], lastBar = TIMES[TIMES.length - 1], hz = h > 0 ? lastLT + h * 3600 : Infinity;
+  // prognozė toliau eina 3 ir 6 val. žingsniu – išskleidžiama į valandas (tiesinė interpoliacija, krituliai paskirstomi tolygiai)
+  const rows = [];
+  FC.rows.forEach((r, k) => {
+    const pr = FC.rows[k - 1], g = pr ? (r[0] - pr[0]) / 3600 : 1;
+    if (pr && g > 1 && g <= 12) for (let j = 1; j < g; j++) { const f = j / g; rows.push(r.map((v, c) => (c === 0 ? pr[0] + j * 3600 : c === 9 ? (v == null ? null : v / g) : c === 10 || v == null || pr[c] == null ? v : pr[c] + (v - pr[c]) * f))); }
+    rows.push(g > 1 && r[9] != null ? r.map((v, c) => (c === 9 ? v / g : v)) : r);
+  });
   const out = []; let b = null, prevC = BARS.length ? BARS[BARS.length - 1].c : null;
-  FC.rows.forEach((r) => {
+  rows.forEach((r) => {
     if (r[1] == null) return;
     const lt = r[0] + tzOff(r[0]); if (lt <= lastLT || lt > hz) return;
     const key = bucket(tf, lt); if (key <= lastBar) return;
