@@ -19,6 +19,7 @@
   --warm: #e2560b; --cool: #1b78d0;
   --rain: #3b7ff0; --snowc: #7f86c4; --sleet: #10a0a0;
   --i1: #c48f00; --i2: #8754f0; --i3: #0d9b88; --i4: #7a8699; --i5: #d33a6c; --i6: #2f9e44; --i7: #b8641a;
+  --sun: #e0b100; --bobu: #e8762b;
   --draw: #2b6be0; --danger: #d6363c; --ok: #1f9d55; --warn: #d48806;
   --sans: "IBM Plex Sans", system-ui, "Segoe UI", sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
@@ -29,6 +30,7 @@
   --warm: #ff8a3d; --cool: #44a8ff;
   --rain: #4c8dff; --snowc: #c4caf6; --sleet: #2cc6bd;
   --i1: #f2c14e; --i2: #b28cff; --i3: #34d1b8; --i4: #8e99ac; --i5: #ff6d9b; --i6: #6bdb7d; --i7: #e8a25c;
+  --sun: #ffd84d; --bobu: #ff9a4d;
   --draw: #ffb547; --danger: #ff5a5f; --ok: #3ddc84; --warn: #f5b041; color-scheme: dark;
 } }
 :root[data-theme="dark"] {
@@ -37,6 +39,7 @@
   --warm: #ff8a3d; --cool: #44a8ff;
   --rain: #4c8dff; --snowc: #c4caf6; --sleet: #2cc6bd;
   --i1: #f2c14e; --i2: #b28cff; --i3: #34d1b8; --i4: #8e99ac; --i5: #ff6d9b; --i6: #6bdb7d; --i7: #e8a25c;
+  --sun: #ffd84d; --bobu: #ff9a4d;
   --draw: #ffb547; --danger: #ff5a5f; --ok: #3ddc84; --warn: #f5b041; color-scheme: dark;
 }
 html, body { height: 100%; }
@@ -276,6 +279,8 @@ const IND = [
   { id: "feels", g: "w", name: "Juntama temperatūra", desc: "Laikotarpio vidurkis, įvertinus vėją", c: "--i5" },
   { id: "yoy", g: "w", name: "Prieš metus", desc: "Tos pačios žvakės uždarymas prieš metus", c: "--i2" },
   { id: "zero", g: "w", name: "0 °C linija", desc: "Užšalimo riba", def: true },
+  { id: "bobu", g: "w", name: "Bobų vasara", desc: "Šiltas ir sausas tarpsnis rugsėjo 15 – lapkričio 5 d. po pirmojo atvėsimo: maks. temperatūra bent 2–3° virš normos, be lietaus. Ryški – sodresnė spalva", p: { d: 3 }, c: "--bobu" },
+  { id: "sun", g: "w", name: "Saulės patekėjimas ir laida", desc: "Šviesusis paros metas 1 ir 4 val. grafike – kaip biržos prekybos sesija", c: "--sun" },
   { id: "events", g: "w", name: "Reiškinių žymės", desc: "Perkūnija, lijundra, kruša, pūga ir " + YRS + " m. rekordai", def: true },
   { id: "wind", g: "w", name: "Vėjas", desc: "Vidutinis greitis ir stipriausias gūsis, m/s", pane: 1, def: true, c: "--i3" },
   { id: "pressure", g: "w", name: "Slėgis", desc: "Vidutinis jūros lygio slėgis, hPa", pane: 1, def: true, c: "--i1" },
@@ -290,7 +295,7 @@ const IND = [
   { id: "rsi", g: "t", name: "RSI", desc: "Santykinio stiprumo indeksas", p: { n: 14 }, pane: 1, c: "--i2" },
   { id: "macd", g: "t", name: "MACD", desc: "Greitas EMA − lėtas EMA, signalinė linija", p: { f: 12, s: 26, g: 9 }, pane: 1, c: "--i3" },
 ];
-const PLAB = { n: "periodas", k: "k", f: "greitas", s: "lėtas", g: "signalas" };
+const PLAB = { n: "periodas", k: "k", f: "greitas", s: "lėtas", g: "signalas", d: "min. dienų" };
 
 function lsGet(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } }
 function lsSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
@@ -398,6 +403,62 @@ function seasonal(tf, bars) { const m = new Map(); bars.forEach((b) => { const k
 function yearAgo(tf, bars) { const m = new Map(bars.map((b) => [b.time, b.c]));
   return bars.map((b) => { const d = D(b.time); d.setUTCFullYear(d.getUTCFullYear() - 1); const v = m.get(bucket(tf, d.getTime() / 1000)); return v == null ? null : v; }); }
 
+/* ---------- bobų vasara ----------
+   Paros pagal vietinį laiką. Ryški diena: maks. ≥ max(norma + 3°, 14°), < 1 mm, dienos (9–17 val.) debesuotumas ≤ 60 %.
+   Silpna diena: maks. ≥ max(norma + 2°, 13°), < 1 mm. Abi tik nuo rugsėjo 15 d. ir tik po atvėsimo (maks. ≤ norma − 3° arba min. ≤ 2°).
+   Tarpsnis – bent d dienų iš eilės; ryškus, jei jame ≥ 3 ryškios dienos. Norma – visų metų vidutinė maks. temperatūra ±7 d. */
+const bobuCache = {};
+function bobuPeriods(minDays) {
+  const key = N + ":" + minDays; if (bobuCache[key]) return bobuCache[key];
+  const days = new Map();
+  for (let i = 0; i < N; i++) {
+    const lt = LT[i], d0 = lt - (lt % 86400); let x = days.get(d0);
+    if (!x) days.set(d0, (x = { mx: -Infinity, mn: Infinity, n: 0, pr: 0, cs: 0, cn: 0 }));
+    if (T[i] != null) { x.n++; if (T[i] > x.mx) x.mx = T[i]; if (T[i] < x.mn) x.mn = T[i]; }
+    if (RN[i] != null) x.pr += RN[i];
+    const hh = (lt % 86400) / 3600; if (CL[i] != null && hh >= 9 && hh <= 17) { x.cs += CL[i]; x.cn++; }
+  }
+  const doy = (t) => { const d = D(t); return Math.round((Date.UTC(2001, d.getUTCMonth(), Math.min(d.getUTCDate(), d.getUTCMonth() === 1 ? 28 : 31)) - Date.UTC(2001, 0, 1)) / 864e5); };
+  const sum = new Array(365).fill(0), cnt = new Array(365).fill(0);
+  days.forEach((x, t) => { if (x.n >= 20) { const k = doy(t); sum[k] += x.mx; cnt[k]++; } });
+  const norm = sum.map((_, k) => { let s = 0, c = 0; for (let j = -7; j <= 7; j++) { const m = (k + j + 365) % 365; s += sum[m]; c += cnt[m]; } return c ? s / c : null; });
+  const out = [], years = new Set([...days.keys()].map((t) => D(t).getUTCFullYear()));
+  years.forEach((y) => {
+    let cooled = false, run = [];
+    const flush = () => { if (run.length >= minDays) out.push({ s: run[0].t, e: run[run.length - 1].t + 86400, n: run.length, strong: run.filter((r) => r.l === 2).length >= 3 }); run = []; };
+    for (let t = Date.UTC(y, 8, 1) / 1000; t <= Date.UTC(y, 10, 5) / 1000; t += 86400) {
+      const x = days.get(t); let l = 0;
+      if (x && x.n >= 20) {
+        const nm = norm[doy(t)], cl = x.cn ? x.cs / x.cn : null;
+        if (x.mx <= nm - 3 || x.mn <= 2) cooled = true;
+        if (t >= Date.UTC(y, 8, 15) / 1000 && cooled && x.pr < 1) {
+          if (x.mx >= Math.max(nm + 3, 14) && (cl == null || cl <= 60)) l = 2;
+          else if (x.mx >= Math.max(nm + 2, 13)) l = 1;
+        }
+      }
+      if (l) run.push({ t, l }); else flush();
+    }
+    flush();
+  });
+  return (bobuCache[key] = out.sort((a, b) => a.s - b.s));
+}
+
+/* ---------- saulės patekėjimas ir laida (NOAA / „sunrise equation“), grąžina vietinio laiko sekundes ---------- */
+const sunCache = {};
+function sunTimes(day0) {
+  if (sunCache[day0] !== undefined) return sunCache[day0];
+  const r = Math.PI / 180, lat = ST.lat, lon = ST.lon;
+  const n = Math.round((day0 + 43200) / 86400 + 2440587.5 - 2451545.0 + 0.0008), J = n - lon / 360;
+  const M = (357.5291 + 0.98560028 * J) % 360, Cc = 1.9148 * Math.sin(M * r) + 0.02 * Math.sin(2 * M * r) + 0.0003 * Math.sin(3 * M * r);
+  const L = (M + Cc + 180 + 102.9372) % 360, Jt = 2451545.0 + J + 0.0053 * Math.sin(M * r) - 0.0069 * Math.sin(2 * L * r);
+  const dec = Math.asin(Math.sin(L * r) * Math.sin(23.4397 * r));
+  const cw = (Math.sin(-0.833 * r) - Math.sin(lat * r) * Math.sin(dec)) / (Math.cos(lat * r) * Math.cos(dec));
+  if (cw <= -1 || cw >= 1) return (sunCache[day0] = null);
+  const w = Math.acos(cw) / r / 360, toLocal = (jd) => { const u = (jd - 2440587.5) * 86400; return u + tzOff(u); };
+  return (sunCache[day0] = { rise: toLocal(Jt - w), set: toLocal(Jt + w) });
+}
+let SESS = { bobu: null, sun: false };
+
 /* ---------- spalvos iš temos ---------- */
 let C = {};
 function readTheme() { const cs = getComputedStyle(document.documentElement); const g = (n) => cs.getPropertyValue(n).trim();
@@ -486,6 +547,15 @@ function build() {
     mk.sort((a, b) => a.time - b.time);
     LW.createSeriesMarkers(main, mk);
   }
+
+  /* fono sesijos: bobų vasara ir šviesusis paros metas (piešiamos ant overlay drobės) */
+  SESS = { bobu: on("bobu") ? bobuPeriods(Math.max(2, Math.round(P("bobu").d))) : null, sun: on("sun") && intra };
+  if (SESS.bobu) LEG.push({ pane: 0, name: "Bobų vasara", color: C.v("--bobu"), get: (i) => {
+    const t0 = BARS[i].time, t1 = i + 1 < BARS.length ? BARS[i + 1].time : t0 + STEP, p = SESS.bobu.find((q) => q.s < t1 && q.e > t0);
+    return p ? (p.strong ? "ryški" : "silpna") + " · " + ymd(p.s).slice(5) + "–" + ymd(p.e - 86400).slice(5) + " (" + p.n + " d.)" : "–"; } });
+  if (on("sun") && tf !== "1W" && tf !== "1M") LEG.push({ pane: 0, name: "Saulė", color: C.v("--sun"), get: (i) => {
+    const st = sunTimes(BARS[i].time - (BARS[i].time % 86400)); if (!st) return "–"; const len = Math.round((st.set - st.rise) / 60);
+    return "↑" + hm(st.rise) + " ↓" + hm(st.set) + " · " + Math.floor(len / 60) + " val. " + pad(len % 60) + " min."; } });
 
   /* papildomi langai */
   let pi = 0;
@@ -683,7 +753,9 @@ function setPanCursor() { if (!chart) return; const want = DR.tool === "cursor" 
   box.style.cursor = DR.tool !== "cursor" ? "crosshair" : DR.drag ? "grabbing" : DR.hover >= 0 ? "move" : ""; }
 
 function geom() { const ts = chart.timeScale(); return { ts, w: ts.width(), h: chart.panes()[0].getHeight() }; }
-const X = (t) => chart.timeScale().logicalToCoordinate(timeToLogical(t));
+// logicalToCoordinate trupmeniniam loginiam indeksui grąžina 0, todėl interpoliuojama tarp gretimų žvakių
+function LX(l) { const ts = chart.timeScale(), i = Math.floor(l), a = ts.logicalToCoordinate(i); if (a == null || l === i) return a; const b = ts.logicalToCoordinate(i + 1); return b == null ? a : a + (l - i) * (b - a); }
+const X = (t) => LX(timeToLogical(t));
 const Y = (p) => main.priceToCoordinate(p);
 function evPt(e) { const r = box.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
 function toPt(x, y, snap) {
@@ -861,12 +933,42 @@ function drawPosition(d, sel) {
   pill(badge[0], g.x0 + 4, g.ye + (up ? 12 : -12) * (Math.abs(g.ys - g.ye) > 30 ? 1 : -1), badge[1], C.bg);
   handle(g.x0, g.yt); handle(g.x0, g.ys); handle(g.x1, g.ye);
 }
+// laiko intervalas [t0, t1) → x koordinatės; žvakė i dengia [TIMES[i], TIMES[i+1]), jos centras – loginis i
+function spanX(t0, t1) { return [LX(timeToLogical(t0) - 0.5), LX(timeToLogical(t1) - 0.5)]; }
+function drawSessions(w, h) {
+  if (!TIMES.length) return;
+  const lr = chart.timeScale().getVisibleLogicalRange(); if (!lr) return;
+  const vt0 = logicalToTime(lr.from - 1), vt1 = logicalToTime(lr.to + 1);
+  if (SESS.sun) {
+    const col = C.v("--sun");
+    for (let d0 = vt0 - (vt0 % 86400) - 86400; d0 <= vt1; d0 += 86400) {
+      const st = sunTimes(d0); if (!st) continue;
+      const [x0, x1] = spanX(st.rise, st.set); if (x0 == null || x1 == null || x1 < 0 || x0 > w) continue;
+      ctx.fillStyle = A(col, 0.13); ctx.fillRect(x0, 0, x1 - x0, h);
+      ctx.strokeStyle = A(col, 0.85); ctx.lineWidth = 1; ctx.setLineDash([]);
+      ctx.beginPath(); ctx.moveTo(Math.round(x0) + 0.5, 0); ctx.lineTo(Math.round(x0) + 0.5, h); ctx.moveTo(Math.round(x1) + 0.5, 0); ctx.lineTo(Math.round(x1) + 0.5, h); ctx.stroke();
+    }
+  }
+  if (SESS.bobu) {
+    const col = C.v("--bobu");
+    SESS.bobu.forEach((p) => {
+      if (p.e < vt0 || p.s > vt1) return;
+      let [x0, x1] = spanX(p.s, p.e); if (x0 == null || x1 == null) return;
+      if (x1 - x0 < 3) { const c = (x0 + x1) / 2; x0 = c - 1.5; x1 = c + 1.5; }
+      ctx.fillStyle = A(col, p.strong ? 0.2 : 0.11); ctx.fillRect(x0, 0, x1 - x0, h);
+      ctx.strokeStyle = A(col, p.strong ? 0.9 : 0.6); ctx.lineWidth = 1; ctx.setLineDash(p.strong ? [] : [4, 3]);
+      ctx.beginPath(); ctx.moveTo(Math.round(x0) + 0.5, 0); ctx.lineTo(Math.round(x0) + 0.5, h); ctx.moveTo(Math.round(x1) + 0.5, 0); ctx.lineTo(Math.round(x1) + 0.5, h); ctx.stroke(); ctx.setLineDash([]);
+      if (x1 - x0 > 54) { ctx.fillStyle = col; ctx.font = "600 11px IBM Plex Sans, system-ui, sans-serif"; ctx.textAlign = "center"; ctx.fillText("Bobų vasara", (x0 + x1) / 2, h - 8); }
+    });
+  }
+}
 function renderDrawings() {
   const dpr = window.devicePixelRatio || 1, W2 = box.clientWidth, H2 = box.clientHeight;
   if (cv.width !== Math.round(W2 * dpr) || cv.height !== Math.round(H2 * dpr)) { cv.width = Math.round(W2 * dpr); cv.height = Math.round(H2 * dpr); cv.style.width = W2 + "px"; cv.style.height = H2 + "px"; }
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W2, H2);
   if (!chart) return; const { w, h } = geom();
   ctx.save(); ctx.beginPath(); ctx.rect(0, 0, w, h); ctx.clip();
+  drawSessions(w, h);
   DR.items.forEach((d, k) => drawItem(d, k === DR.sel || k === DR.hover));
   if (DR.temp) drawItem(DR.temp, true, true);
   if (DR.measure) drawItem(DR.measure, true);
