@@ -1,0 +1,1039 @@
+<!doctype html>
+<html lang="lt">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0}[hidden]{display:none!important}</style>
+</head>
+<body>
+<title>Vilniaus temperatūros terminalas</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: one-screen trading terminal — top bar, left drawing rail, chart, right data window, bottom range bar. */
+:root {
+  --bg: #f4f6f9; --panel: #ffffff; --panel2: #eef1f5; --line: #dde2ea; --grid: #edf0f4;
+  --fg: #182131; --muted: #687487; --accent: #2b6be0; --accent-fg: #ffffff;
+  --warm: #e2560b; --cool: #1b78d0;
+  --rain: #3b7ff0; --snowc: #7f86c4; --sleet: #10a0a0;
+  --i1: #c48f00; --i2: #8754f0; --i3: #0d9b88; --i4: #7a8699; --i5: #d33a6c; --i6: #2f9e44; --i7: #b8641a;
+  --draw: #2b6be0; --danger: #d6363c; --ok: #1f9d55; --warn: #d48806;
+  --sans: "IBM Plex Sans", system-ui, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0d1016; --panel: #131821; --panel2: #1a202b; --line: #242c39; --grid: #182029;
+  --fg: #d6dce6; --muted: #7e899b; --accent: #5a9bff; --accent-fg: #0b1220;
+  --warm: #ff8a3d; --cool: #44a8ff;
+  --rain: #4c8dff; --snowc: #c4caf6; --sleet: #2cc6bd;
+  --i1: #f2c14e; --i2: #b28cff; --i3: #34d1b8; --i4: #8e99ac; --i5: #ff6d9b; --i6: #6bdb7d; --i7: #e8a25c;
+  --draw: #ffb547; --danger: #ff5a5f; --ok: #3ddc84; --warn: #f5b041; color-scheme: dark;
+} }
+:root[data-theme="dark"] {
+  --bg: #0d1016; --panel: #131821; --panel2: #1a202b; --line: #242c39; --grid: #182029;
+  --fg: #d6dce6; --muted: #7e899b; --accent: #5a9bff; --accent-fg: #0b1220;
+  --warm: #ff8a3d; --cool: #44a8ff;
+  --rain: #4c8dff; --snowc: #c4caf6; --sleet: #2cc6bd;
+  --i1: #f2c14e; --i2: #b28cff; --i3: #34d1b8; --i4: #8e99ac; --i5: #ff6d9b; --i6: #6bdb7d; --i7: #e8a25c;
+  --draw: #ffb547; --danger: #ff5a5f; --ok: #3ddc84; --warn: #f5b041; color-scheme: dark;
+}
+html, body { height: 100%; }
+body { background: var(--bg); color: var(--fg); font-family: var(--sans); font-size: 13px; }
+* { box-sizing: border-box; }
+button, input, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.app { height: 100%; display: grid; grid-template-columns: 44px 1fr 268px; grid-template-rows: auto 1fr auto;
+  grid-template-areas: "top top top" "rail chart side" "bottom bottom bottom";
+  padding-left: env(safe-area-inset-left, 0px); padding-right: env(safe-area-inset-right, 0px); }
+
+/* top bar */
+.top { grid-area: top; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 6px 10px; background: var(--panel); border-bottom: 1px solid var(--line); }
+.sym { display: flex; align-items: baseline; gap: 10px; padding-right: 10px; margin-right: 2px; border-right: 1px solid var(--line); min-width: 0; }
+.sym b { font-family: var(--mono); font-weight: 600; font-size: 14px; letter-spacing: .02em; }
+.sym .last { font-family: var(--mono); font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.sym .chg { font-family: var(--mono); font-size: 12px; font-variant-numeric: tabular-nums; }
+.symbtn { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); background: var(--panel2); border-radius: 6px; padding: 3px 8px; }
+.symbtn:hover { border-color: var(--accent); }
+.symbtn b { font-family: var(--mono); font-weight: 600; font-size: 14px; letter-spacing: .04em; }
+.symbtn .caret { color: var(--muted); font-size: 10px; }
+.dlgwrap { position: fixed; inset: 0; z-index: 40; background: color-mix(in srgb, var(--bg) 55%, transparent); display: grid; place-items: start center;
+  padding: max(56px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) 16px max(16px, env(safe-area-inset-left, 0px)); }
+.dlg { width: min(560px, 100%); max-height: min(78vh, 720px); display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 18px 50px rgb(0 0 0 / .3); overflow: hidden; }
+.dlghead { display: flex; justify-content: space-between; align-items: center; padding: 10px 12px 4px 16px; }
+.dlghead h3 { margin: 0; font-size: 15px; font-weight: 600; }
+.symq { margin: 6px 12px 8px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel2); font-size: 14px; }
+.symq:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.symlist { overflow: auto; border-top: 1px solid var(--line); min-height: 0; }
+.symrow { width: 100%; display: grid; grid-template-columns: 64px 1fr auto; gap: 12px; align-items: center; text-align: left; border: 0; border-bottom: 1px solid var(--grid); background: transparent; padding: 8px 16px; }
+.symrow:hover, .symrow.sel { background: var(--panel2); }
+.symrow.cur b { color: var(--accent); }
+.symrow b { font-family: var(--mono); font-weight: 600; letter-spacing: .04em; }
+.symrow span { min-width: 0; }
+.symrow small { display: block; color: var(--muted); font-size: 11px; }
+.symrow em { font-style: normal; font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 13px; }
+.dlgnote { margin: 0; padding: 8px 16px 12px; color: var(--muted); font-size: 12px; border-top: 1px solid var(--line); }
+.sym small { color: var(--muted); font-size: 11px; white-space: nowrap; }
+.live { display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border-radius: 12px; background: var(--panel2); font-size: 12px; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.live i { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+.live[data-mode="on"] { color: var(--fg); } .live[data-mode="on"] i { background: var(--ok); animation: pulse 2s ease-in-out infinite; }
+.live[data-mode="load"] i { background: var(--warn); } .live[data-mode="err"] i { background: var(--danger); }
+@keyframes pulse { 50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--ok) 25%, transparent); } }
+.grp { display: flex; gap: 2px; padding: 2px; border-radius: 6px; background: var(--panel2); }
+.btn { border: 0; background: transparent; padding: 5px 9px; border-radius: 4px; font-size: 12px; font-weight: 500; color: var(--muted); white-space: nowrap; }
+.btn:hover { color: var(--fg); background: var(--grid); }
+.btn[aria-pressed="true"] { color: var(--accent-fg); background: var(--accent); }
+.btn.mono { font-family: var(--mono); }
+.sep { flex: 1; }
+.datein { background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; font-family: var(--mono); font-size: 12px; }
+label.inl { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
+
+/* indicator popover */
+.pop { position: absolute; z-index: 30; top: 46px; left: 50%; transform: translateX(-50%); width: min(560px, calc(100vw - 32px)); max-height: min(70vh, 640px); overflow: auto;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 12px 40px rgb(0 0 0 / .25); padding: 12px 14px; }
+.pop h3 { margin: 10px 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 600; }
+.pop h3:first-child { margin-top: 0; }
+.irow { display: grid; grid-template-columns: 18px 10px 1fr auto; align-items: center; gap: 8px; padding: 5px 4px; border-radius: 4px; }
+.irow:hover { background: var(--panel2); }
+.irow .sw { width: 10px; height: 10px; border-radius: 2px; }
+.irow .nm small { display: block; color: var(--muted); font-size: 11px; }
+.irow .pr { display: flex; gap: 6px; align-items: center; color: var(--muted); font-size: 11px; }
+.irow input[type=number] { width: 52px; padding: 2px 4px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel2); font-family: var(--mono); font-size: 12px; }
+.pophead { display: flex; justify-content: space-between; align-items: center; }
+
+/* rail */
+.rail { grid-area: rail; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 0; background: var(--panel); border-right: 1px solid var(--line); }
+.tool { width: 34px; height: 34px; display: grid; place-items: center; border: 0; border-radius: 6px; background: transparent; color: var(--muted); position: relative; }
+.tool:hover { background: var(--panel2); color: var(--fg); }
+.tool[aria-pressed="true"] { background: var(--panel2); color: var(--draw); box-shadow: inset 2px 0 0 var(--draw); }
+.tool svg { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.tool.danger:hover { color: var(--danger); }
+.tool.armed { color: var(--danger); background: color-mix(in srgb, var(--danger) 14%, transparent); }
+.rail hr { width: 24px; border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
+
+/* chart */
+.chartbox { grid-area: chart; position: relative; min-width: 0; min-height: 0; overflow: hidden; }
+#chart { position: absolute; inset: 0; }
+#overlay { position: absolute; inset: 0; pointer-events: none; z-index: 5; }
+.legend { position: absolute; left: 10px; top: 6px; z-index: 6; pointer-events: none; font-family: var(--mono); font-size: 12px; line-height: 1.55; font-variant-numeric: tabular-nums; max-width: calc(100% - 90px); }
+.legend .title { font-family: var(--sans); font-size: 13px; font-weight: 500; }
+.legend .title span { color: var(--muted); }
+.legend .k { color: var(--muted); }
+.legend .row { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.plabel { position: absolute; left: 10px; z-index: 6; pointer-events: none; font-family: var(--mono); font-size: 11px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.plabel .n { font-family: var(--sans); color: var(--fg); font-weight: 500; margin-right: 6px; }
+.hint { position: absolute; left: 50%; bottom: 36px; transform: translateX(-50%); z-index: 7; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px; font-size: 12px; color: var(--muted); pointer-events: none; }
+
+/* data window */
+.side { grid-area: side; background: var(--panel); border-left: 1px solid var(--line); overflow: auto; padding: 10px 12px 16px; font-size: 12px; }
+.side h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 600; margin: 14px 0 6px; }
+.side h2:first-child { margin-top: 0; }
+.period { font-family: var(--mono); font-size: 12.5px; font-weight: 500; }
+.ohlc { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin-top: 8px; }
+.ohlc div { background: var(--panel2); border-radius: 5px; padding: 5px 6px; }
+.ohlc span { display: block; font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.ohlc b { font-family: var(--mono); font-weight: 600; font-size: 13px; font-variant-numeric: tabular-nums; }
+dl.kv { display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; margin: 0; }
+dl.kv dt { color: var(--muted); }
+dl.kv dd { margin: 0; text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.windrow { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
+.compass { width: 54px; height: 54px; flex: none; }
+.conds { display: flex; flex-direction: column; gap: 4px; }
+.cond { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; }
+.cond .bar { grid-column: 1 / -1; height: 3px; border-radius: 2px; background: var(--panel2); overflow: hidden; }
+.cond .bar i { display: block; height: 100%; background: var(--accent); }
+.cond em { font-style: normal; font-family: var(--mono); color: var(--muted); }
+.src { margin-top: 16px; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.chip { display: inline-block; padding: 1px 6px; border-radius: 10px; font-size: 11px; background: var(--panel2); color: var(--muted); }
+
+/* bottom */
+.bottom { grid-area: bottom; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 4px 10px; background: var(--panel); border-top: 1px solid var(--line); font-size: 12px; color: var(--muted);
+  padding-bottom: max(4px, env(safe-area-inset-bottom, 0px)); }
+.bottom .tz { font-family: var(--mono); }
+
+@media (max-width: 860px) {
+  html, body { height: auto; }
+  .app { height: auto; grid-template-columns: 1fr; grid-template-rows: auto auto 68vh auto auto;
+    grid-template-areas: "top" "rail" "chart" "bottom" "side";
+    padding-left: max(0px, env(safe-area-inset-left, 0px)); padding-right: max(0px, env(safe-area-inset-right, 0px)); }
+  .top, .bottom, .side { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+  .rail { flex-direction: row; overflow-x: auto; justify-content: flex-start; padding: 4px max(16px, env(safe-area-inset-left, 0px)); border-right: 0; border-bottom: 1px solid var(--line); }
+  .rail hr { width: 1px; height: 22px; border: 0; border-left: 1px solid var(--line); margin: 0 4px; }
+  .tool[aria-pressed="true"] { box-shadow: inset 0 -2px 0 var(--draw); }
+  .side { border-left: 0; border-top: 1px solid var(--line); }
+  .sym small { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+
+<div class="app">
+  <header class="top" id="top">
+    <div class="sym">
+      <button class="symbtn" id="symBtn" aria-haspopup="dialog" title="Keisti stotį (arba pradėkite rašyti miesto pavadinimą)"><b id="symTick">–</b><span class="caret" aria-hidden="true">▾</span></button>
+      <span class="last" id="lastVal">–</span>
+      <span class="chg" id="lastChg"></span>
+      <small id="symName"></small>
+    </div>
+    <div class="grp" id="tfs" role="group" aria-label="Laiko intervalas"></div>
+    <div class="grp" id="types" role="group" aria-label="Grafiko tipas"></div>
+    <button class="btn" id="indBtn" aria-expanded="false" aria-pressed="false">ƒx Indikatoriai</button>
+    <span class="live" id="live" data-mode="off" title="Rodomas įdėtas archyvas"><i></i><span>Archyvas</span></span>
+    <span class="sep"></span>
+    <label class="inl" for="goto">Eiti į <input type="date" id="goto" class="datein"></label>
+    <button class="btn" id="themeBtn" title="Šviesi / tamsi tema" aria-label="Keisti temą">◐</button>
+  </header>
+
+  <nav class="rail" id="rail" aria-label="Piešimo įrankiai"></nav>
+
+  <main class="chartbox" id="chartbox">
+    <div id="chart"></div>
+    <canvas id="overlay"></canvas>
+    <div class="legend" id="legend"></div>
+    <div id="plabels"></div>
+    <div class="hint" id="hint" hidden></div>
+  </main>
+
+  <aside class="side" id="side" aria-label="Duomenų langas"></aside>
+
+  <footer class="bottom">
+    <div class="grp" id="ranges" role="group" aria-label="Rodomas laikotarpis"></div>
+    <span class="sep"></span>
+    <span id="vis"></span>
+    <span class="tz">Europe/Vilnius (UTC+2/+3)</span>
+  </footer>
+  <div class="pop" id="pop" hidden></div>
+  <div class="dlgwrap" id="symDlg" hidden>
+    <div class="dlg" role="dialog" aria-modal="true" aria-labelledby="symDlgT">
+      <div class="dlghead"><h3 id="symDlgT">Stotys</h3><button class="btn" id="symClose" aria-label="Uždaryti">✕</button></div>
+      <input id="symQ" class="symq" type="search" placeholder="Ieškoti: miestas arba tikeris" autocomplete="off" spellcheck="false">
+      <div class="symlist" id="symList" role="listbox" aria-labelledby="symDlgT"></div>
+      <p class="dlgnote" id="symNote"></p>
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/lightweight-charts@5.0.8/dist/lightweight-charts.standalone.production.js"></script>
+<script>window.__V="202610271937";window.__STATIONS_URL="data/stations.json?v=202610271937";</script>
+<script>
+function boot() {
+"use strict";
+const LW = window.LightweightCharts;
+const RAW = window.__WX;
+const ST = window.__STATION || { code: "vilniaus-ams", name: "Vilniaus AMS", ticker: "VILN", lat: 54.626, lon: 25.107 };
+const STS = window.__STATIONS || [ST];
+const $ = (id) => document.getElementById(id);
+
+/* ---------- duomenų dekodavimas ---------- */
+const dec = (s, sc) => s.split(",").map((x) => (x === "" ? null : sc ? +x / sc : +x));
+let N = RAW.n;
+const T = dec(RAW.T, 10), F = dec(RAW.F, 10), W = dec(RAW.W, 10), G = dec(RAW.G, 10), DIR = dec(RAW.D),
+  CL = dec(RAW.C), PR = dec(RAW.P, 10), HU = dec(RAW.H), RN = dec(RAW.R, 10), SN = dec(RAW.S), K = dec(RAW.K);
+const CONDS = RAW.conds;
+
+/* Vilniaus vietinis laikas: ES vasaros laikas nuo paskutinio kovo sekmadienio 01:00 UTC iki paskutinio spalio sekmadienio 01:00 UTC */
+function lastSun(y, m) { const d = new Date(Date.UTC(y, m + 1, 0)); return Date.UTC(y, m, d.getUTCDate() - d.getUTCDay(), 1) / 1000; }
+const dstC = {};
+function tzOff(u) { const y = new Date(u * 1000).getUTCFullYear(); const c = dstC[y] || (dstC[y] = [lastSun(y, 2), lastSun(y, 9)]); return u >= c[0] && u < c[1] ? 10800 : 7200; }
+const LT = [];
+for (let i = 0; i < N; i++) { const u = RAW.t0 + i * 3600; LT.push(u + tzOff(u)); }
+/* tik pilnos vietinės paros: nuo pirmo vidurnakčio iki paskutinio */
+let I0 = 0, I1 = N; while (I0 < N && LT[I0] % 86400 !== 0) I0++; while (I1 > I0 && LT[I1 - 1] % 86400 !== 82800) I1--;
+const dstr = (t) => new Date(t * 1000).toISOString().slice(0, 10);
+const FIRST = dstr(LT[I0]); let LAST = dstr(LT[I1 - 1]); const YRS = Math.round((I1 - I0) / 8766), Y0 = FIRST.slice(0, 4), Y1 = LAST.slice(0, 4);
+
+/* ---------- žodynai ---------- */
+const COND_LT = {
+  "clear": "Giedra", "partly-cloudy": "Mažai debesuota", "cloudy-with-sunny-intervals": "Debesuota su pragiedruliais",
+  "variable-cloudiness": "Nepastovus debesuotumas", "cloudy": "Debesuota", "light-rain": "Nedidelis lietus", "rain": "Lietus",
+  "heavy-rain": "Smarkus lietus", "rain-showers": "Trumpas lietus", "light-rain-at-times": "Protarpiais nedidelis lietus",
+  "rain-at-times": "Protarpiais lietus", "light-sleet": "Nedidelė šlapdriba", "sleet": "Šlapdriba", "sleet-at-times": "Protarpiais šlapdriba",
+  "sleet-showers": "Trumpa šlapdriba", "freezing-rain": "Lijundra", "hail": "Kruša", "light-snow": "Nedidelis sniegas", "snow": "Sniegas",
+  "heavy-snow": "Smarkus sniegas", "snow-showers": "Trumpas sniegas", "snow-at-times": "Protarpiais sniegas",
+  "light-snow-at-times": "Protarpiais nedidelis sniegas", "snowstorm": "Pūga", "fog": "Rūkas", "thunder": "Perkūnija",
+  "thunderstorms": "Perkūnija su lietumi", "isolated-thunderstorms": "Vietomis perkūnija", "squall": "Škvalas", "mist": "Rūkana",
+};
+const EVENTS = { "thunder": "⚡", "thunderstorms": "⚡", "isolated-thunderstorms": "⚡", "freezing-rain": "Lij", "hail": "Kr", "heavy-snow": "Pūga", "snowstorm": "Pūga", "squall": "Šk" };
+const WD = ["Sk", "Pr", "An", "Tr", "Kt", "Pn", "Št"];
+const WDF = ["sekmadienis", "pirmadienis", "antradienis", "trečiadienis", "ketvirtadienis", "penktadienis", "šeštadienis"];
+const MS = ["saus.", "vas.", "kov.", "bal.", "geg.", "birž.", "liep.", "rugpj.", "rugs.", "spal.", "lapkr.", "gruod."];
+const MF = ["sausis", "vasaris", "kovas", "balandis", "gegužė", "birželis", "liepa", "rugpjūtis", "rugsėjis", "spalis", "lapkritis", "gruodis"];
+const COMPASS = ["Š", "ŠR", "R", "PR", "P", "PV", "V", "ŠV"];
+
+const TFS = [
+  { id: "1H", label: "1 val", step: 3600 }, { id: "4H", label: "4 val", step: 14400 }, { id: "1D", label: "D", step: 86400 },
+  { id: "1W", label: "S", step: 604800 }, { id: "1M", label: "M", step: 2629746 },
+];
+const TYPES = [{ id: "candles", label: "Žvakės" }, { id: "ha", label: "Heikin Ashi" }, { id: "bars", label: "Barai" }, { id: "line", label: "Linija" }];
+
+/* ---------- nustatymai ---------- */
+const IND = [
+  { id: "precip", g: "w", name: "Krituliai", desc: "Suma mm, kaip apyvartos histograma; spalva rodo lietų, sniegą ar šlapdribą", def: true },
+  { id: "norm", g: "w", name: YRS + " m. sezoninė norma", desc: "Tos pačios kalendorinės vietos vidutinė temperatūra " + Y0 + "–" + Y1 + " m.", def: true, c: "--i4" },
+  { id: "twap", g: "w", name: "Vidutinė temperatūra", desc: "Visų laikotarpio valandų vidurkis (TWAP)", c: "--i7" },
+  { id: "feels", g: "w", name: "Juntama temperatūra", desc: "Laikotarpio vidurkis, įvertinus vėją", c: "--i5" },
+  { id: "yoy", g: "w", name: "Prieš metus", desc: "Tos pačios žvakės uždarymas prieš metus", c: "--i2" },
+  { id: "zero", g: "w", name: "0 °C linija", desc: "Užšalimo riba", def: true },
+  { id: "events", g: "w", name: "Reiškinių žymės", desc: "Perkūnija, lijundra, kruša, pūga ir " + YRS + " m. rekordai", def: true },
+  { id: "wind", g: "w", name: "Vėjas", desc: "Vidutinis greitis ir stipriausias gūsis, m/s", pane: 1, def: true, c: "--i3" },
+  { id: "pressure", g: "w", name: "Slėgis", desc: "Vidutinis jūros lygio slėgis, hPa", pane: 1, def: true, c: "--i1" },
+  { id: "humidity", g: "w", name: "Santykinė drėgmė", desc: "Vidurkis, %", pane: 1, c: "--rain" },
+  { id: "cloud", g: "w", name: "Debesuotumas", desc: "Vidurkis, %", pane: 1, c: "--i4" },
+  { id: "snow", g: "w", name: "Sniego danga", desc: "Didžiausias storis, cm", pane: 1, c: "--snowc" },
+  { id: "sma1", g: "t", name: "SMA", desc: "Paprastasis slankusis vidurkis", p: { n: 20 }, def: true, c: "--i1" },
+  { id: "sma2", g: "t", name: "SMA", desc: "Antras paprastasis slankusis vidurkis", p: { n: 50 }, c: "--i2" },
+  { id: "ema", g: "t", name: "EMA", desc: "Eksponentinis slankusis vidurkis", p: { n: 12 }, c: "--i3" },
+  { id: "bb", g: "t", name: "Bollinger juostos", desc: "SMA ± k standartinių nuokrypių", p: { n: 20, k: 2 }, c: "--i4" },
+  { id: "atr", g: "t", name: "Amplitudė ir ATR", desc: "Maks.–min. skirtumas ir vidutinis tikrasis intervalas", p: { n: 14 }, pane: 1, c: "--i7" },
+  { id: "rsi", g: "t", name: "RSI", desc: "Santykinio stiprumo indeksas", p: { n: 14 }, pane: 1, c: "--i2" },
+  { id: "macd", g: "t", name: "MACD", desc: "Greitas EMA − lėtas EMA, signalinė linija", p: { f: 12, s: 26, g: 9 }, pane: 1, c: "--i3" },
+];
+const PLAB = { n: "periodas", k: "k", f: "greitas", s: "lėtas", g: "signalas" };
+
+function lsGet(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } }
+function lsSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+
+const S = Object.assign({ tf: "1D", type: "candles", ind: {} }, lsGet("vt.settings") || {});
+IND.forEach((d) => {
+  const cur = S.ind[d.id] || {};
+  S.ind[d.id] = { on: cur.on !== undefined ? cur.on : !!d.def, p: Object.assign({}, d.p || {}, cur.p || {}) };
+});
+const saveS = () => lsSet("vt.settings", S);
+
+/* ---------- formatavimas ---------- */
+const nf = (v, d = 1) => (v == null || !isFinite(v) ? "–" : v.toFixed(d).replace("-", "−").replace(".", ","));
+const sg = (v, d = 1) => (v == null ? "–" : (v > 0 ? "+" : "") + nf(v, d));
+const pad = (n) => String(n).padStart(2, "0");
+const D = (t) => new Date(t * 1000);
+const ymd = (t) => { const d = D(t); return d.getUTCFullYear() + "-" + pad(d.getUTCMonth() + 1) + "-" + pad(d.getUTCDate()); };
+const hm = (t) => { const d = D(t); return pad(d.getUTCHours()) + ":" + pad(d.getUTCMinutes()); };
+function isoWeek(t) { const d = D(t); const day = (d.getUTCDay() + 6) % 7; d.setUTCDate(d.getUTCDate() - day + 3); const f = new Date(Date.UTC(d.getUTCFullYear(), 0, 4)); return 1 + Math.round(((d - f) / 864e5 - 3 + ((f.getUTCDay() + 6) % 7)) / 7); }
+function periodLabel(tf, t) {
+  const d = D(t);
+  if (tf === "1H") return ymd(t) + " " + WD[d.getUTCDay()] + " " + hm(t);
+  if (tf === "4H") return ymd(t) + " " + WD[d.getUTCDay()] + " " + hm(t) + "–" + hm(t + 14400).replace("00:00", "24:00");
+  if (tf === "1D") return ymd(t) + ", " + WDF[d.getUTCDay()];
+  if (tf === "1W") return ymd(t) + " – " + ymd(t + 6 * 86400).slice(5) + " · " + isoWeek(t) + " sav.";
+  return d.getUTCFullYear() + " m. " + MF[d.getUTCMonth()];
+}
+function dur(sec) {
+  const a = Math.abs(sec), d = Math.floor(a / 86400), h = Math.round((a % 86400) / 3600);
+  if (d >= 60) return nf(a / 2629746, 1) + " mėn.";
+  if (d > 0) return d + " d." + (h ? " " + h + " val." : "");
+  return h + " val.";
+}
+
+/* ---------- agregavimas į žvakes ---------- */
+function bucket(tf, lt) {
+  if (tf === "1H") return lt - (lt % 3600);
+  if (tf === "4H") return lt - (lt % 14400);
+  if (tf === "1D") return lt - (lt % 86400);
+  if (tf === "1W") { const day = Math.floor(lt / 86400); return (day - ((day + 3) % 7)) * 86400; }
+  const d = D(lt); return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1) / 1000;
+}
+function ptype(code) { if (!code) return "rain"; if (/snow/.test(code)) return "snow"; if (/sleet|freezing|hail/.test(code)) return "sleet"; return "rain"; }
+
+const cache = {};
+function aggregate(tf) {
+  if (cache[tf]) return cache[tf];
+  const bars = []; let b = null, lastT = null;
+  for (let i = I0; i < I1; i++) {
+    const key = bucket(tf, LT[i]);
+    if (!b || b.time !== key) {
+      b = { time: key, o: null, h: -Infinity, l: Infinity, c: null, tsum: 0, tn: 0, fsum: 0, fn: 0, fmin: Infinity,
+        rain: 0, snowmm: 0, sleet: 0, ph: 0, wsum: 0, wn: 0, gmax: null, u: 0, v: 0, csum: 0, cn: 0, psum: 0, pn: 0, po: null, pc: null,
+        hsum: 0, hn: 0, smax: null, cnt: {}, ev: new Set(), n: 0 };
+      if (tf === "1H" && lastT != null) { b.o = lastT; b.h = lastT; b.l = lastT; }
+      bars.push(b);
+    }
+    b.n++;
+    const t = T[i];
+    if (t != null) { if (b.o == null) b.o = t; if (t > b.h) b.h = t; if (t < b.l) b.l = t; b.c = t; b.tsum += t; b.tn++; lastT = t; }
+    if (F[i] != null) { b.fsum += F[i]; b.fn++; if (F[i] < b.fmin) b.fmin = F[i]; }
+    const code = K[i] != null ? CONDS[K[i]] : null;
+    if (RN[i] != null && RN[i] > 0) { const pt = ptype(code); if (pt === "snow") b.snowmm += RN[i]; else if (pt === "sleet") b.sleet += RN[i]; else b.rain += RN[i]; b.ph++; }
+    if (W[i] != null) { b.wsum += W[i]; b.wn++; if (DIR[i] != null) { const r = (DIR[i] * Math.PI) / 180; b.u += W[i] * Math.sin(r); b.v += W[i] * Math.cos(r); } }
+    if (G[i] != null && (b.gmax == null || G[i] > b.gmax)) b.gmax = G[i];
+    if (CL[i] != null) { b.csum += CL[i]; b.cn++; }
+    if (PR[i] != null) { b.psum += PR[i]; b.pn++; if (b.po == null) b.po = PR[i]; b.pc = PR[i]; }
+    if (HU[i] != null) { b.hsum += HU[i]; b.hn++; }
+    if (SN[i] != null && (b.smax == null || SN[i] > b.smax)) b.smax = SN[i];
+    if (code) { b.cnt[code] = (b.cnt[code] || 0) + 1; if (EVENTS[code]) b.ev.add(EVENTS[code]); }
+  }
+  const out = bars.filter((x) => x.o != null && x.tn > 0);
+  out.forEach((x) => {
+    x.avg = x.tsum / x.tn; x.feels = x.fn ? x.fsum / x.fn : null; x.fmin = x.fn ? x.fmin : null;
+    x.precip = x.rain + x.snowmm + x.sleet;
+    x.pt = x.snowmm >= x.rain && x.snowmm >= x.sleet ? "snow" : x.sleet > x.rain ? "sleet" : "rain";
+    x.wind = x.wn ? x.wsum / x.wn : null; x.dir = x.wn && (x.u || x.v) ? ((Math.atan2(x.u, x.v) * 180) / Math.PI + 360) % 360 : null;
+    x.calm = x.wn ? Math.hypot(x.u, x.v) / x.wsum : null; // krypties pastovumas 0–1
+    x.cloud = x.cn ? x.csum / x.cn : null; x.pres = x.pn ? x.psum / x.pn : null; x.hum = x.hn ? x.hsum / x.hn : null;
+    x.range = x.h - x.l;
+  });
+  return (cache[tf] = out);
+}
+
+/* ---------- indikatorių skaičiavimas ---------- */
+function sma(a, n) { const r = new Array(a.length).fill(null); let s = 0; for (let i = 0; i < a.length; i++) { s += a[i]; if (i >= n) s -= a[i - n]; if (i >= n - 1) r[i] = s / n; } return r; }
+function ema(a, n) { const r = new Array(a.length).fill(null); const k = 2 / (n + 1); let e = null, s = 0;
+  for (let i = 0; i < a.length; i++) { if (a[i] == null) continue; if (e == null) { s += a[i]; if (i === n - 1) { e = s / n; r[i] = e; } continue; } e = a[i] * k + e * (1 - k); r[i] = e; } return r; }
+function emaN(a, n) { // EMA, praleidžianti pradinius null
+  const r = new Array(a.length).fill(null); const k = 2 / (n + 1); let e = null, cnt = 0, s = 0;
+  for (let i = 0; i < a.length; i++) { const v = a[i]; if (v == null) continue; if (e == null) { s += v; cnt++; if (cnt === n) { e = s / n; r[i] = e; } } else { e = v * k + e * (1 - k); r[i] = e; } }
+  return r; }
+function stdev(a, n, m) { return a.map((_, i) => { if (m[i] == null) return null; let s = 0; for (let j = i - n + 1; j <= i; j++) s += (a[j] - m[i]) ** 2; return Math.sqrt(s / n); }); }
+function rsi(a, n) { const r = new Array(a.length).fill(null); let g = 0, l = 0;
+  for (let i = 1; i < a.length; i++) { const d = a[i] - a[i - 1], up = Math.max(d, 0), dn = Math.max(-d, 0);
+    if (i <= n) { g += up; l += dn; if (i === n) { g /= n; l /= n; r[i] = l === 0 ? 100 : 100 - 100 / (1 + g / l); } }
+    else { g = (g * (n - 1) + up) / n; l = (l * (n - 1) + dn) / n; r[i] = l === 0 ? 100 : 100 - 100 / (1 + g / l); } } return r; }
+function atr(bars, n) { const tr = bars.map((b, i) => (i ? Math.max(b.h, bars[i - 1].c) - Math.min(b.l, bars[i - 1].c) : b.h - b.l)); const r = new Array(bars.length).fill(null); let a = 0;
+  for (let i = 0; i < tr.length; i++) { if (i < n) { a += tr[i]; if (i === n - 1) { a /= n; r[i] = a; } } else { a = (a * (n - 1) + tr[i]) / n; r[i] = a; } } return r; }
+function normKey(tf, t) { const d = D(t), md = (d.getUTCMonth() + 1) * 100 + d.getUTCDate();
+  if (tf === "1H" || tf === "4H") return md * 100 + d.getUTCHours();
+  if (tf === "1D") return md; if (tf === "1W") return Math.min(52, isoWeek(t)); return d.getUTCMonth(); }
+function seasonal(tf, bars) { const m = new Map(); bars.forEach((b) => { const k = normKey(tf, b.time); const e = m.get(k) || [0, 0]; e[0] += b.avg; e[1]++; m.set(k, e); });
+  return bars.map((b) => { const e = m.get(normKey(tf, b.time)); return e[0] / e[1]; }); }
+function yearAgo(tf, bars) { const m = new Map(bars.map((b) => [b.time, b.c]));
+  return bars.map((b) => { const d = D(b.time); d.setUTCFullYear(d.getUTCFullYear() - 1); const v = m.get(bucket(tf, d.getTime() / 1000)); return v == null ? null : v; }); }
+
+/* ---------- spalvos iš temos ---------- */
+let C = {};
+function readTheme() { const cs = getComputedStyle(document.documentElement); const g = (n) => cs.getPropertyValue(n).trim();
+  C = { bg: g("--bg"), panel: g("--panel"), line: g("--line"), grid: g("--grid"), fg: g("--fg"), muted: g("--muted"), accent: g("--accent"),
+    warm: g("--warm"), cool: g("--cool"), rain: g("--rain"), snowc: g("--snowc"), sleet: g("--sleet"), draw: g("--draw"), danger: g("--danger"), v: (n) => g(n) }; }
+function A(hex, a) { const h = hex.replace("#", ""); const n = parseInt(h.length === 3 ? h.replace(/./g, "$&$&") : h, 16); return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`; }
+
+/* ---------- grafiko kūrimas ---------- */
+let chart = null, main = null, BARS = [], TIMES = [], DISP = [], STEP = 86400, LEG = [], PANES = [], curIdx = -1;
+const chartEl = $("chart");
+
+function tickFmt(time, type) { const d = D(time);
+  if (type === 0) return String(d.getUTCFullYear()); if (type === 1) return MS[d.getUTCMonth()];
+  if (type === 2) return String(d.getUTCDate()); return hm(time); }
+
+function build() {
+  readTheme();
+  let keep = null;
+  if (chart) { const r = chart.timeScale().getVisibleLogicalRange(); if (r && BARS.length) keep = [logicalToTime(r.from), logicalToTime(r.to)]; chart.remove(); }
+  const tf = S.tf; const tfd = TFS.find((x) => x.id === tf); STEP = tfd.step;
+  BARS = aggregate(tf); TIMES = BARS.map((b) => b.time);
+  const intra = tf === "1H" || tf === "4H";
+  chart = LW.createChart(chartEl, {
+    autoSize: true,
+    layout: { background: { type: "solid", color: C.bg }, textColor: C.muted, fontFamily: "IBM Plex Mono, ui-monospace, monospace", fontSize: 11,
+      panes: { separatorColor: C.line, separatorHoverColor: A(C.accent, 0.25), enableResize: true } },
+    grid: { vertLines: { color: C.grid }, horzLines: { color: C.grid } },
+    crosshair: { mode: 0, vertLine: { color: C.muted, labelBackgroundColor: C.fg }, horzLine: { color: C.muted, labelBackgroundColor: C.fg } },
+    rightPriceScale: { borderColor: C.line },
+    timeScale: { borderColor: C.line, timeVisible: intra, secondsVisible: false, rightOffset: 6, tickMarkFormatter: tickFmt },
+    localization: { locale: "lt-LT", timeFormatter: (t) => periodLabel(tf, t) },
+  });
+  LEG = []; PANES = [];
+  const closes = BARS.map((b) => b.c);
+  const tfmt = { type: "custom", minMove: 0.1, formatter: (v) => nf(v) + "°" };
+  // rodoma tik tai, ką stotis matuoja: indikatorius be duomenų praleidžiamas
+  const DATA_OF = { precip: "precip", feels: "feels", wind: "wind", pressure: "pres", humidity: "hum", cloud: "cloud", snow: "smax" };
+  const hasData = {}; Object.entries(DATA_OF).forEach(([id, f]) => (hasData[id] = BARS.some((b) => b[f] != null && (f !== "precip" || b.ph > 0))));
+  const on = (id) => S.ind[id].on && hasData[id] !== false, P = (id) => S.ind[id].p;
+  const ts = (arr) => arr.map((v, i) => (v == null ? { time: TIMES[i] } : { time: TIMES[i], value: v }));
+
+  /* pagrindinė serija */
+  const up = C.warm, dn = C.cool;
+  let data;
+  if (S.type === "ha") { let po = null, pc = null; data = BARS.map((b) => { const c = (b.o + b.h + b.l + b.c) / 4; const o = po == null ? (b.o + b.c) / 2 : (po + pc) / 2; po = o; pc = c;
+      return { time: b.time, open: o, high: Math.max(b.h, o, c), low: Math.min(b.l, o, c), close: c }; }); }
+  else data = BARS.map((b) => ({ time: b.time, open: b.o, high: b.h, low: b.l, close: b.c }));
+  DISP = data;
+  if (S.type === "line") { main = chart.addSeries(LW.LineSeries, { color: C.accent, lineWidth: 2, priceFormat: tfmt }); main.setData(BARS.map((b) => ({ time: b.time, value: b.c }))); }
+  else if (S.type === "bars") { main = chart.addSeries(LW.BarSeries, { upColor: up, downColor: dn, thinBars: false, priceFormat: tfmt }); main.setData(data); }
+  else { main = chart.addSeries(LW.CandlestickSeries, { upColor: up, downColor: dn, borderVisible: false, wickUpColor: up, wickDownColor: dn, priceFormat: tfmt }); main.setData(data); }
+  main.priceScale().applyOptions({ scaleMargins: { top: 0.1, bottom: on("precip") ? 0.22 : 0.08 } });
+
+  /* krituliai kaip apyvarta */
+  if (on("precip")) {
+    const s = chart.addSeries(LW.HistogramSeries, { priceScaleId: "vol", priceFormat: { type: "custom", minMove: 0.1, formatter: (v) => nf(v) + " mm" }, lastValueVisible: false, priceLineVisible: false });
+    s.priceScale().applyOptions({ scaleMargins: { top: 0.82, bottom: 0 }, visible: false });
+    s.setData(BARS.map((b) => ({ time: b.time, value: b.precip, color: A(b.pt === "snow" ? C.snowc : b.pt === "sleet" ? C.sleet : C.rain, 0.75) })));
+    LEG.push({ pane: 0, name: "Krituliai", color: C.rain, get: (i) => nf(BARS[i].precip) + " mm" });
+  }
+  const ov = (id, arr, opts, name) => { const s = chart.addSeries(LW.LineSeries, Object.assign({ lineWidth: 1.5, priceFormat: tfmt, lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false }, opts)); s.setData(ts(arr)); LEG.push({ pane: 0, name, color: opts.color, get: (i) => nf(arr[i]) + "°" }); return s; };
+  if (on("norm")) ov("norm", seasonal(tf, BARS), { color: C.v("--i4"), lineStyle: 2, lineWidth: 1.5 }, "Norma " + YRS + " m.");
+  if (on("twap")) ov("twap", BARS.map((b) => b.avg), { color: C.v("--i7") }, "Vidutinė");
+  if (on("feels")) ov("feels", BARS.map((b) => b.feels), { color: C.v("--i5"), lineWidth: 1 }, "Juntama");
+  if (on("yoy")) ov("yoy", yearAgo(tf, BARS), { color: C.v("--i2"), lineWidth: 1, lineStyle: 1 }, "Prieš metus");
+  if (on("sma1")) ov("sma1", sma(closes, P("sma1").n), { color: C.v("--i1") }, "SMA " + P("sma1").n);
+  if (on("sma2")) ov("sma2", sma(closes, P("sma2").n), { color: C.v("--i2") }, "SMA " + P("sma2").n);
+  if (on("ema")) ov("ema", ema(closes, P("ema").n), { color: C.v("--i3") }, "EMA " + P("ema").n);
+  if (on("bb")) { const { n, k } = P("bb"); const m = sma(closes, n), sd = stdev(closes, n, m), col = C.v("--i4");
+    const u = m.map((v, i) => (v == null ? null : v + k * sd[i])), l = m.map((v, i) => (v == null ? null : v - k * sd[i]));
+    ov("bbm", m, { color: col, lineWidth: 1 }, `BB ${n} ${k}`); ov("bbu", u, { color: A(col, 0.8), lineWidth: 1 }, "viršut."); ov("bbl", l, { color: A(col, 0.8), lineWidth: 1 }, "apat."); }
+  if (on("zero")) main.createPriceLine({ price: 0, color: A(C.cool, 0.7), lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "0 °C" });
+
+  /* žymės */
+  if (on("events") && S.type !== "line") {
+    const mk = []; let hi = 0, lo = 0;
+    BARS.forEach((b, i) => { if (b.h > BARS[hi].h) hi = i; if (b.l < BARS[lo].l) lo = i; });
+    BARS.forEach((b, i) => {
+      if (i === hi) mk.push({ time: b.time, position: "aboveBar", color: C.warm, shape: "arrowDown", text: "Rekordas " + nf(b.h) + "°" });
+      if (i === lo) mk.push({ time: b.time, position: "belowBar", color: C.cool, shape: "arrowUp", text: "Rekordas " + nf(b.l) + "°" });
+      if (tf === "1M" || !b.ev.size) return;
+      const ev = [...b.ev];
+      if (ev.includes("⚡")) mk.push({ time: b.time, position: "aboveBar", color: C.v("--i1"), shape: "circle", text: "⚡", size: 0.6 });
+      ev.filter((e) => e !== "⚡").forEach((e) => mk.push({ time: b.time, position: "belowBar", color: e === "Pūga" ? C.snowc : C.sleet, shape: "square", text: e, size: 0.6 }));
+    });
+    mk.sort((a, b) => a.time - b.time);
+    LW.createSeriesMarkers(main, mk);
+  }
+
+  /* papildomi langai */
+  let pi = 0;
+  const sub = (name) => { pi++; PANES.push({ idx: pi, name, legs: [] }); return pi; };
+  const addLeg = (p, name, color, get) => PANES[PANES.length - 1].legs.push({ name, color, get });
+  const fmtU = (u, d = 1) => ({ type: "custom", minMove: Math.pow(10, -d), formatter: (v) => nf(v, d) });
+  if (on("wind")) { const p = sub("Vėjas"), col = C.v("--i3");
+    const g = chart.addSeries(LW.HistogramSeries, { color: A(col, 0.3), priceFormat: fmtU(" m/s"), lastValueVisible: false, priceLineVisible: false }, p); g.setData(ts(BARS.map((b) => b.gmax)));
+    const w = chart.addSeries(LW.LineSeries, { color: col, lineWidth: 1.5, priceFormat: fmtU(" m/s"), priceLineVisible: false }, p); w.setData(ts(BARS.map((b) => b.wind)));
+    addLeg(p, "vid.", col, (i) => nf(BARS[i].wind) + " m/s"); addLeg(p, "gūsis", A(col, 0.55), (i) => nf(BARS[i].gmax) + " m/s");
+    addLeg(p, "kryptis", C.muted, (i) => (BARS[i].dir == null ? "–" : COMPASS[Math.round(BARS[i].dir / 45) % 8])); }
+  if (on("pressure")) { const p = sub("Slėgis"), col = C.v("--i1");
+    const s = chart.addSeries(LW.LineSeries, { color: col, lineWidth: 1.5, priceFormat: fmtU(" hPa"), priceLineVisible: false }, p); s.setData(ts(BARS.map((b) => b.pres)));
+    s.createPriceLine({ price: 1013.25, color: A(C.muted, 0.6), lineStyle: 2, lineWidth: 1, axisLabelVisible: false, title: "norm." });
+    addLeg(p, "vid.", col, (i) => nf(BARS[i].pres) + " hPa"); addLeg(p, "Δ", C.muted, (i) => (BARS[i].po == null ? "–" : sg(BARS[i].pc - BARS[i].po))); }
+  if (on("humidity")) { const p = sub("Drėgmė"), col = C.rain;
+    const s = chart.addSeries(LW.AreaSeries, { lineColor: col, topColor: A(col, 0.28), bottomColor: A(col, 0.02), lineWidth: 1.5, priceFormat: fmtU(" %", 0), priceLineVisible: false }, p); s.setData(ts(BARS.map((b) => b.hum)));
+    addLeg(p, "vid.", col, (i) => nf(BARS[i].hum, 0) + " %"); }
+  if (on("cloud")) { const p = sub("Debesuotumas"), col = C.v("--i4");
+    const s = chart.addSeries(LW.HistogramSeries, { priceFormat: fmtU(" %", 0), priceLineVisible: false, lastValueVisible: false }, p);
+    s.setData(BARS.map((b) => (b.cloud == null ? { time: b.time } : { time: b.time, value: b.cloud, color: A(col, 0.2 + (b.cloud / 100) * 0.7) })));
+    addLeg(p, "vid.", col, (i) => nf(BARS[i].cloud, 0) + " %"); }
+  if (on("snow")) { const p = sub("Sniego danga"), col = C.snowc;
+    const s = chart.addSeries(LW.AreaSeries, { lineColor: col, topColor: A(col, 0.45), bottomColor: A(col, 0.05), lineWidth: 1.5, priceFormat: fmtU(" cm", 0), priceLineVisible: false }, p); s.setData(ts(BARS.map((b) => b.smax)));
+    addLeg(p, "maks.", col, (i) => nf(BARS[i].smax, 0) + " cm"); }
+  if (on("atr")) { const p = sub("Amplitudė"), col = C.v("--i7"), n = P("atr").n, a = atr(BARS, n);
+    const h = chart.addSeries(LW.HistogramSeries, { color: A(col, 0.35), priceFormat: fmtU("°"), lastValueVisible: false, priceLineVisible: false }, p); h.setData(BARS.map((b) => ({ time: b.time, value: b.range })));
+    const l = chart.addSeries(LW.LineSeries, { color: col, lineWidth: 1.5, priceFormat: fmtU("°"), priceLineVisible: false }, p); l.setData(ts(a));
+    addLeg(p, "M−m", A(col, 0.6), (i) => nf(BARS[i].range) + "°"); addLeg(p, "ATR " + n, col, (i) => nf(a[i]) + "°"); }
+  if (on("rsi")) { const p = sub("RSI " + P("rsi").n), col = C.v("--i2"), r = rsi(closes, P("rsi").n);
+    const s = chart.addSeries(LW.LineSeries, { color: col, lineWidth: 1.5, priceFormat: fmtU("", 1), priceLineVisible: false, autoscaleInfoProvider: () => ({ priceRange: { minValue: 0, maxValue: 100 } }) }, p); s.setData(ts(r));
+    [70, 30].forEach((v) => s.createPriceLine({ price: v, color: A(C.muted, 0.6), lineStyle: 2, lineWidth: 1, axisLabelVisible: true }));
+    addLeg(p, "", col, (i) => nf(r[i])); }
+  if (on("macd")) { const { f, s: sl, g } = P("macd"), p = sub(`MACD ${f} ${sl} ${g}`), col = C.v("--i3");
+    const ef = ema(closes, f), es = ema(closes, sl), m = ef.map((v, i) => (v == null || es[i] == null ? null : v - es[i])), sig = emaN(m, g), hst = m.map((v, i) => (v == null || sig[i] == null ? null : v - sig[i]));
+    const h = chart.addSeries(LW.HistogramSeries, { priceFormat: fmtU("", 2), lastValueVisible: false, priceLineVisible: false }, p);
+    h.setData(hst.map((v, i) => (v == null ? { time: TIMES[i] } : { time: TIMES[i], value: v, color: A(v >= 0 ? C.warm : C.cool, 0.55) })));
+    const a = chart.addSeries(LW.LineSeries, { color: col, lineWidth: 1.5, priceFormat: fmtU("", 2), priceLineVisible: false }, p); a.setData(ts(m));
+    const b = chart.addSeries(LW.LineSeries, { color: C.v("--i5"), lineWidth: 1, priceFormat: fmtU("", 2), priceLineVisible: false }, p); b.setData(ts(sig));
+    addLeg(p, "MACD", col, (i) => nf(m[i], 2)); addLeg(p, "signalas", C.v("--i5"), (i) => nf(sig[i], 2)); addLeg(p, "hist.", C.muted, (i) => nf(hst[i], 2)); }
+
+  const panes = chart.panes(); const subs = panes.length - 1;
+  panes.forEach((p, i) => p.setStretchFactor(i === 0 ? Math.max(2.4, subs * 1.1) : 1));
+
+  /* plabels */
+  $("plabels").innerHTML = PANES.map((p, k) => `<div class="plabel" id="pl${k}"></div>`).join("");
+
+  chart.subscribeCrosshairMove((param) => {
+    let i = -1;
+    if (param && param.point && param.logical != null) i = Math.max(0, Math.min(BARS.length - 1, Math.round(param.logical)));
+    showIdx(i < 0 ? BARS.length - 1 : i);
+    if (DR.tool !== "cursor" || DR.drag || DR.hover >= 0) bump();
+  });
+  chart.timeScale().subscribeVisibleLogicalRangeChange(visStats);
+
+  /* rodomas intervalas */
+  if (keep) { chart.timeScale().setVisibleLogicalRange({ from: timeToLogical(keep[0]), to: timeToLogical(keep[1]) }); }
+  else { const n = { "1H": 24 * 10, "4H": 6 * 45, "1D": 200, "1W": 120, "1M": 70 }[tf]; chart.timeScale().setVisibleLogicalRange({ from: BARS.length - n, to: BARS.length + 4 }); }
+
+  /* viršutinė kaina */
+  const lb = BARS[BARS.length - 1], pb = BARS[BARS.length - 2];
+  $("lastVal").textContent = nf(lb.c) + " °C";
+  const ch = lb.c - pb.c; $("lastChg").textContent = sg(ch) + "° per " + tfd.label.replace(/^D$/, "dieną").replace(/^S$/, "savaitę").replace(/^M$/, "mėnesį");
+  $("lastChg").style.color = ch >= 0 ? C.warm : C.cool;
+
+  curIdx = -1; showIdx(BARS.length - 1); visStats(); setPanCursor(); bump();
+}
+
+/* ---------- legenda ir duomenų langas ---------- */
+function showIdx(i) {
+  if (i === curIdx || i < 0) return; curIdx = i;
+  const b = BARS[i], tf = S.tf, dsp = DISP[i];
+  const prev = BARS[i - 1], chg = b.c - b.o;
+  const col = chg >= 0 ? C.warm : C.cool;
+  const o = S.type === "ha" ? dsp.open : b.o, h = S.type === "ha" ? dsp.high : b.h, l = S.type === "ha" ? dsp.low : b.l, c = S.type === "ha" ? dsp.close : b.c;
+  const legs = LEG.map((L) => `<span style="color:${L.color}">${L.name}</span> ${L.get(i)}`).join("&ensp;");
+  $("legend").innerHTML =
+    `<div class="title">${ST.name} · Oro temperatūra · ${TFS.find((x) => x.id === tf).label} <span>· LHMT</span></div>` +
+    `<div class="row" style="color:${col}"><span class="k">A</span> ${nf(o)} <span class="k">M</span> ${nf(h)} <span class="k">m</span> ${nf(l)} <span class="k">U</span> ${nf(c)} ` +
+    `${prev ? sg(b.c - prev.c) + "°" : ""}</div>` + (legs ? `<div class="row">${legs}</div>` : "");
+  PANES.forEach((p, k) => { const el = $("pl" + k); if (el) el.innerHTML = `<span class="n">${p.name}</span>` + p.legs.map((L) => `<span style="color:${L.color}">${L.name}</span> ${L.get(i)}`).join("&ensp;"); });
+  renderSide(b, i);
+}
+function compassSVG(dir, steady) {
+  const a = dir == null ? null : dir + 180;
+  const ticks = COMPASS.map((n, k) => { const r = (k * 45 * Math.PI) / 180, x = 27 + Math.sin(r) * 21, y = 27 - Math.cos(r) * 21; return k % 2 ? "" : `<text x="${x}" y="${y + 3}" text-anchor="middle" font-size="8" fill="currentColor" opacity=".7">${n}</text>`; }).join("");
+  const arrow = a == null ? "" : `<g transform="rotate(${a} 27 27)"><line x1="27" y1="40" x2="27" y2="15" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" opacity="${0.35 + 0.65 * (steady || 0)}"/><path d="M27 11 L23 18 L31 18 Z" fill="var(--accent)" opacity="${0.35 + 0.65 * (steady || 0)}"/></g>`;
+  return `<svg class="compass" viewBox="0 0 54 54" aria-hidden="true"><circle cx="27" cy="27" r="25" fill="none" stroke="var(--line)"/>${ticks}${arrow}</svg>`;
+}
+function renderSide(b, i) {
+  const tf = S.tf, prev = BARS[i - 1];
+  const conds = Object.entries(b.cnt).sort((x, y) => y[1] - x[1]).slice(0, 4);
+  const tot = Object.values(b.cnt).reduce((s, v) => s + v, 0) || 1;
+  const pt = { rain: "lietus", snow: "sniegas", sleet: "šlapdriba" }[b.pt];
+  $("side").innerHTML = `
+    <h2>Žvakė</h2>
+    <div class="period">${periodLabel(tf, b.time)}</div>
+    <div class="ohlc">
+      <div><span>Atid.</span><b>${nf(b.o)}°</b></div><div><span>Maks.</span><b style="color:var(--warm)">${nf(b.h)}°</b></div>
+      <div><span>Min.</span><b style="color:var(--cool)">${nf(b.l)}°</b></div><div><span>Uždar.</span><b>${nf(b.c)}°</b></div>
+    </div>
+    <h2>Temperatūra</h2>
+    <dl class="kv">
+      <dt>Pokytis per žvakę</dt><dd>${sg(b.c - b.o)}°</dd>
+      <dt>Nuo ankstesnės</dt><dd>${prev ? sg(b.c - prev.c) + "°" : "–"}</dd>
+      <dt>Amplitudė</dt><dd>${nf(b.range)}°</dd>
+      <dt>Vidurkis</dt><dd>${nf(b.avg)}°</dd>
+      <dt>Juntama vid. / min.</dt><dd>${nf(b.feels)}° / ${nf(b.fmin)}°</dd>
+    </dl>
+    <h2>Krituliai ir sniegas</h2>
+    <dl class="kv">
+      <dt>Suma</dt><dd>${nf(b.precip)} mm${b.precip > 0 ? ` <span class="chip">${pt}</span>` : ""}</dd>
+      <dt>Valandų su krituliais</dt><dd>${b.ph} iš ${b.n}</dd>
+      <dt>Sniego danga, maks.</dt><dd>${b.smax == null ? "–" : b.smax + " cm"}</dd>
+    </dl>
+    <h2>Vėjas</h2>
+    <div class="windrow">${compassSVG(b.dir, b.calm)}
+      <dl class="kv" style="flex:1">
+        <dt>Vidutinis</dt><dd>${nf(b.wind)} m/s</dd>
+        <dt>Gūsis</dt><dd>${nf(b.gmax)} m/s</dd>
+        <dt>Kryptis</dt><dd>${b.dir == null ? "–" : COMPASS[Math.round(b.dir / 45) % 8] + " " + Math.round(b.dir) + "°"}</dd>
+      </dl></div>
+    <h2>Atmosfera</h2>
+    <dl class="kv">
+      <dt>Slėgis</dt><dd>${nf(b.pres)} hPa</dd>
+      <dt>Slėgio pokytis</dt><dd>${b.po == null ? "–" : sg(b.pc - b.po) + " hPa"}</dd>
+      <dt>Drėgmė</dt><dd>${nf(b.hum, 0)} %</dd>
+      <dt>Debesuotumas</dt><dd>${nf(b.cloud, 0)} %</dd>
+    </dl>
+    <h2>Sąlygos${tf === "1H" ? "" : " (valandos)"}</h2>
+    <div class="conds">${conds.length ? conds.map(([k, v]) => `<div class="cond"><span>${COND_LT[k] || k}</span><em>${tf === "1H" ? "" : v}</em><div class="bar"><i style="width:${(v / tot) * 100}%"></i></div></div>`).join("") : '<span class="chip">nėra duomenų</span>'}</div>
+    <h2>Matomas intervalas</h2>
+    <dl class="kv" id="visdl"></dl>
+    <p class="src">Duomenys: LHMT, ${ST.name} (${nf(ST.lat, 3)}° Š, ${nf(ST.lon, 3)}° R), valandiniai stebėjimai ${FIRST} – ${LAST}. Žvakės ribos pagal Vilniaus laiką: para nuo 00:00, savaitė nuo pirmadienio, mėnuo nuo 1 d.</p>`;
+  visStats();
+}
+function visStats() {
+  if (!chart) return; const r = chart.timeScale().getVisibleLogicalRange(); if (!r) return;
+  const a = Math.max(0, Math.ceil(r.from)), z = Math.min(BARS.length - 1, Math.floor(r.to)); if (z < a) return;
+  let hi = -Infinity, lo = Infinity, hiT = 0, loT = 0, s = 0, n = 0, pr = 0, sn = 0;
+  for (let i = a; i <= z; i++) { const b = BARS[i]; if (b.h > hi) { hi = b.h; hiT = b.time; } if (b.l < lo) { lo = b.l; loT = b.time; } s += b.tsum; n += b.tn; pr += b.precip; if (b.smax > sn) sn = b.smax; }
+  const txt = `${ymd(BARS[a].time)} – ${ymd(BARS[z].time)}`;
+  $("vis").textContent = `${txt} · ${z - a + 1} žvak. · vid. ${nf(s / n)}°`;
+  const dl = $("visdl"); if (dl) dl.innerHTML = `<dt>Laikotarpis</dt><dd>${dur(BARS[z].time - BARS[a].time + STEP)}</dd>
+    <dt>Maksimumas</dt><dd style="color:var(--warm)">${nf(hi)}° <span class="chip">${ymd(hiT)}</span></dd>
+    <dt>Minimumas</dt><dd style="color:var(--cool)">${nf(lo)}° <span class="chip">${ymd(loT)}</span></dd>
+    <dt>Vidurkis</dt><dd>${nf(s / n)}°</dd><dt>Krituliai</dt><dd>${nf(pr, 0)} mm</dd><dt>Sniego danga, maks.</dt><dd>${sn} cm</dd>`;
+}
+
+/* ---------- laikas ↔ loginis indeksas ---------- */
+function timeToLogical(t) { const n = TIMES.length; if (!n) return 0; if (t <= TIMES[0]) return (t - TIMES[0]) / STEP; if (t >= TIMES[n - 1]) return n - 1 + (t - TIMES[n - 1]) / STEP;
+  let lo = 0, hi = n - 1; while (hi - lo > 1) { const m = (lo + hi) >> 1; if (TIMES[m] <= t) lo = m; else hi = m; } return lo + (t - TIMES[lo]) / (TIMES[hi] - TIMES[lo]); }
+function logicalToTime(l) { const n = TIMES.length; if (l <= 0) return TIMES[0] + l * STEP; if (l >= n - 1) return TIMES[n - 1] + (l - (n - 1)) * STEP; const i = Math.floor(l); return TIMES[i] + (l - i) * (TIMES[i + 1] - TIMES[i]); }
+
+/* ---------- piešimas ---------- */
+const DR = { tool: "cursor", items: lsGet("vt.drawings." + ST.code) || [], sel: -1, hover: -1, temp: null, drag: null, magnet: true, ver: 0, measure: null };
+const saveDR = () => lsSet("vt.drawings." + ST.code, DR.items);
+const bump = () => DR.ver++;
+const cv = $("overlay"), ctx = cv.getContext("2d"), box = $("chartbox");
+const TOOLS = [
+  { id: "cursor", t: "Žymeklis (Esc)", svg: '<path d="M6 3l12 8-5 1.5L10 19z"/>' },
+  { id: "trend", t: "Trendo linija (Alt+T)", svg: '<path d="M4 18L20 6"/><circle cx="4" cy="18" r="1.8"/><circle cx="20" cy="6" r="1.8"/>' },
+  { id: "ray", t: "Spindulys", svg: '<path d="M4 18L21 5" stroke-dasharray="0"/><circle cx="4" cy="18" r="1.8"/><path d="M17 5h4v4"/>' },
+  { id: "hline", t: "Horizontali linija (Alt+H)", svg: '<path d="M3 12h18"/><circle cx="12" cy="12" r="1.8"/>' },
+  { id: "vline", t: "Vertikali linija (Alt+V)", svg: '<path d="M12 3v18"/><circle cx="12" cy="12" r="1.8"/>' },
+  { id: "rect", t: "Stačiakampis", svg: '<rect x="4" y="6" width="16" height="12" rx="1"/>' },
+  { id: "fib", t: "Fibonačio atsitraukimas (Alt+F)", svg: '<path d="M3 5h18M3 9.5h18M3 13h18M3 19h18" /><path d="M5 19L19 5" opacity=".5"/>' },
+  { id: "long", t: "Ilga pozicija (Alt+L)", svg: '<rect x="4" y="4" width="16" height="8" rx="1" fill="currentColor" fill-opacity=".18"/><rect x="4" y="12" width="16" height="7" rx="1"/><path d="M9 9l3-3 3 3"/>' },
+  { id: "short", t: "Trumpa pozicija (Alt+S)", svg: '<rect x="4" y="5" width="16" height="7" rx="1"/><rect x="4" y="12" width="16" height="8" rx="1" fill="currentColor" fill-opacity=".18"/><path d="M9 15l3 3 3-3"/>' },
+  { id: "measure", t: "Matuoklė", svg: '<path d="M4 20V8M4 20h12"/><path d="M8 16l9-9M13 7h4v4"/>' },
+  { sep: 1 },
+  { id: "magnet", t: "Magnetas: prilipti prie A/M/m/U", toggle: 1, svg: '<path d="M6 4v7a6 6 0 0012 0V4h-4v7a2 2 0 01-4 0V4z"/><path d="M6 8h4M14 8h4"/>' },
+  { id: "delsel", t: "Ištrinti pasirinktą (Delete)", svg: '<path d="M5 7h14M9 7V4h6v3M7 7l1 13h8l1-13"/>' },
+  { id: "delall", t: "Ištrinti visus piešinius", danger: 1, svg: '<path d="M5 7h14M9 7V4h6v3M7 7l1 13h8l1-13M10 11l4 5M14 11l-4 5"/>' },
+];
+function renderRail() {
+  $("rail").innerHTML = TOOLS.map((t) => t.sep ? "<hr>" : `<button class="tool${t.danger ? " danger" : ""}" id="tool-${t.id}" title="${t.t}" aria-label="${t.t}" aria-pressed="${t.toggle ? DR.magnet : DR.tool === t.id}"><svg viewBox="0 0 24 24">${t.svg}</svg></button>`).join("");
+  TOOLS.forEach((t) => { if (t.sep) return; $("tool-" + t.id).onclick = () => onTool(t.id); });
+}
+let armT = null;
+function onTool(id) {
+  if (id === "magnet") { DR.magnet = !DR.magnet; renderRail(); return; }
+  if (id === "delsel") { if (DR.sel >= 0) { DR.items.splice(DR.sel, 1); DR.sel = -1; saveDR(); bump(); } return; }
+  if (id === "delall") { const b = $("tool-delall");
+    if (!b.classList.contains("armed")) { b.classList.add("armed"); b.title = "Spausk dar kartą, kad ištrintum " + DR.items.length + " piešinius"; hint(b.title); clearTimeout(armT); armT = setTimeout(() => { b.classList.remove("armed"); hint(); }, 2500); return; }
+    DR.items = []; DR.sel = -1; DR.measure = null; saveDR(); bump(); b.classList.remove("armed"); hint(); return; }
+  setTool(id);
+}
+function setTool(id) { DR.tool = id; DR.temp = null; renderRail(); setPanCursor();
+  hint({ trend: "Spausk pradžios ir pabaigos taškus", ray: "Spausk du taškus – linija tęsis į dešinę", hline: "Spausk lygį", vline: "Spausk datą", rect: "Spausk du priešingus kampus", fib: "Spausk nuo ekstremumo iki ekstremumo", measure: "Spausk du taškus – parodys Δ °C ir trukmę",
+    long: "Spausk įėjimo kainą. Stop = 1 ATR, tikslas = 2 ATR – abu galima tempti", short: "Spausk įėjimo kainą. Stop = 1 ATR, tikslas = 2 ATR – abu galima tempti" }[id]); bump(); }
+function hint(t) { const h = $("hint"); h.hidden = !t; if (t) h.textContent = t; }
+let panOn = true;
+function setPanCursor() { if (!chart) return; const want = DR.tool === "cursor" && DR.hover < 0 && !DR.drag; if (want !== panOn) { panOn = want; chart.applyOptions({ handleScroll: want }); }
+  box.style.cursor = DR.tool !== "cursor" ? "crosshair" : DR.drag ? "grabbing" : DR.hover >= 0 ? "move" : ""; }
+
+function geom() { const ts = chart.timeScale(); return { ts, w: ts.width(), h: chart.panes()[0].getHeight() }; }
+const X = (t) => chart.timeScale().logicalToCoordinate(timeToLogical(t));
+const Y = (p) => main.priceToCoordinate(p);
+function evPt(e) { const r = box.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
+function toPt(x, y, snap) {
+  const l = chart.timeScale().coordinateToLogical(x); let t = logicalToTime(l), p = main.coordinateToPrice(y);
+  if (snap && DR.magnet) { const i = Math.round(l); const d = DISP[i]; if (d) { let best = null, bd = 14;
+      [d.open, d.high, d.low, d.close].forEach((v) => { const dy = Math.abs(Y(v) - y); if (dy < bd) { bd = dy; best = v; } });
+      if (best != null) { p = best; t = TIMES[i]; } } }
+  return { t, p };
+}
+/* ---------- pozicija (long / short): įėjimas a, pabaigos laikas b.t, tp ir sl kainos ---------- */
+const isPos = (d) => d.type === "long" || d.type === "short";
+function atrAt(i) { let s = 0, n = 0; for (let k = Math.max(0, i - 13); k <= i && k < BARS.length; k++) { s += BARS[k].h - BARS[k].l; n++; } return n ? s / n : 1; }
+function newPosition(type, pt) {
+  const i = Math.max(0, Math.min(BARS.length - 1, Math.round(timeToLogical(pt.t))));
+  const r = Math.max(0.2, Math.round(atrAt(i) * 10) / 10), dir = type === "long" ? 1 : -1;
+  return { type, a: pt, b: { t: logicalToTime(timeToLogical(pt.t) + 20), p: pt.p }, sl: pt.p - dir * r, tp: pt.p + 2 * dir * r };
+}
+/* Eina per žvakes po įėjimo: kas pirmas – tikslas ar stop'as. Ta pati žvakė abiem → laikoma stop'u (atsargiai). */
+function posResult(d) {
+  const dir = d.type === "long" ? 1 : -1, risk = Math.abs(d.a.p - d.sl) || 1e-9;
+  const i0 = Math.floor(timeToLogical(d.a.t) + 1e-9) + 1, iEnd = Math.min(BARS.length - 1, Math.floor(timeToLogical(d.b.t) + 1e-9));
+  for (let i = Math.max(0, i0); i <= iEnd; i++) {
+    const b = BARS[i], tp = dir > 0 ? b.h >= d.tp : b.l <= d.tp, sl = dir > 0 ? b.l <= d.sl : b.h >= d.sl;
+    if (sl) return { res: "sl", i, price: d.sl, r: -1, both: tp };
+    if (tp) return { res: "tp", i, price: d.tp, r: Math.abs(d.tp - d.a.p) / risk };
+  }
+  if (iEnd < i0) return { res: "wait" };
+  const last = BARS[iEnd], pnl = (last.c - d.a.p) * dir;
+  return { res: d.b.t > TIMES[TIMES.length - 1] ? "open" : "end", i: iEnd, price: last.c, pnl, r: pnl / risk };
+}
+function posGeom(d) { return { x0: X(d.a.t), x1: X(d.b.t), ye: Y(d.a.p), yt: Y(d.tp), ys: Y(d.sl) }; }
+function segDist(px, py, ax, ay, bx, by) { const dx = bx - ax, dy = by - ay, L = dx * dx + dy * dy; let u = L ? ((px - ax) * dx + (py - ay) * dy) / L : 0; u = Math.max(0, Math.min(1, u)); return Math.hypot(px - ax - u * dx, py - ay - u * dy); }
+function hit(x, y) {
+  const { w } = geom();
+  for (let k = DR.items.length - 1; k >= 0; k--) {
+    const d = DR.items[k], ax = X(d.a.t), ay = Y(d.a.p), bx = d.b ? X(d.b.t) : 0, by = d.b ? Y(d.b.p) : 0;
+    if (isPos(d)) {
+      const g = posGeom(d), top = Math.min(g.yt, g.ys), bot = Math.max(g.yt, g.ys);
+      if (Math.hypot(x - g.x0, y - g.yt) < 9) return { k, part: "tp" };
+      if (Math.hypot(x - g.x0, y - g.ys) < 9) return { k, part: "sl" };
+      if (Math.hypot(x - g.x1, y - g.ye) < 9) return { k, part: "end" };
+      if (x >= g.x0 - 4 && x <= g.x1 + 4 && y >= top - 4 && y <= bot + 4) return { k, part: "body" };
+      continue;
+    }
+    if (d.b && Math.hypot(x - bx, y - by) < 8) return { k, part: "b" };
+    if (Math.hypot(x - ax, y - ay) < 8 && d.type !== "hline" && d.type !== "vline") return { k, part: "a" };
+    let dist = 99;
+    if (d.type === "hline") dist = Math.abs(y - ay);
+    else if (d.type === "vline") dist = Math.abs(x - ax);
+    else if (d.type === "trend") dist = segDist(x, y, ax, ay, bx, by);
+    else if (d.type === "ray") { const ex = bx === ax ? bx : w, ey = bx === ax ? by : ay + ((by - ay) * (ex - ax)) / (bx - ax); dist = segDist(x, y, ax, ay, bx > ax ? ex : bx, bx > ax ? ey : by); }
+    else if (d.type === "rect" || d.type === "fib") { const x0 = Math.min(ax, bx), x1 = Math.max(ax, bx), y0 = Math.min(ay, by), y1 = Math.max(ay, by);
+      dist = x >= x0 - 4 && x <= x1 + 4 && y >= y0 - 4 && y <= y1 + 4 ? (d.type === "rect" ? Math.min(Math.abs(x - x0), Math.abs(x - x1), Math.abs(y - y0), Math.abs(y - y1)) : 0) : 99; }
+    if (dist < 6) return { k, part: "body" };
+  }
+  return null;
+}
+box.addEventListener("pointermove", (e) => {
+  if (!chart) return; const { x, y } = evPt(e);
+  if (DR.drag) { const g = DR.drag, d = DR.items[g.k], pt = toPt(x, y, g.part !== "body");
+    if (g.part === "body") { const l0 = chart.timeScale().coordinateToLogical(g.x0), l1 = chart.timeScale().coordinateToLogical(x), dp = main.coordinateToPrice(y) - main.coordinateToPrice(g.y0);
+      const mv = (o) => ({ t: logicalToTime(timeToLogical(o.t) + (l1 - l0)), p: o.p + dp }); d.a = mv(g.a0); if (g.b0) d.b = mv(g.b0);
+      if (isPos(d)) { d.tp = g.tp0 + dp; d.sl = g.sl0 + dp; } }
+    else if (g.part === "tp" || g.part === "sl") {
+      const dir = d.type === "long" ? 1 : -1, v = pt.p;
+      // tikslas lieka pelno pusėje, stop'as – nuostolio pusėje
+      if (g.part === "tp" && (v - d.a.p) * dir > 0) d.tp = v;
+      if (g.part === "sl" && (d.a.p - v) * dir > 0) d.sl = v; }
+    else if (g.part === "end") { if (timeToLogical(pt.t) > timeToLogical(d.a.t) + 0.5) d.b = { t: pt.t, p: d.a.p }; }
+    else d[g.part] = pt;
+    bump(); return; }
+  if (DR.tool !== "cursor") { if (DR.temp) { DR.temp.b = toPt(x, y, true); bump(); } return; }
+  const { h } = geom(); const hh = y < h ? hit(x, y) : null; const nh = hh ? hh.k : -1;
+  if (nh !== DR.hover) { DR.hover = nh; setPanCursor(); bump(); }
+});
+box.addEventListener("pointerdown", (e) => {
+  if (!chart || e.button > 0) return; const { x, y } = evPt(e); const { w, h } = geom();
+  if (x > w || y > h) return;
+  if (DR.measure && DR.tool === "cursor") { DR.measure = null; bump(); }
+  if (DR.tool === "cursor") {
+    const hh = hit(x, y); DR.sel = hh ? hh.k : -1;
+    if (hh) { const d = DR.items[hh.k]; DR.drag = { k: hh.k, part: hh.part, x0: x, y0: y, a0: Object.assign({}, d.a), b0: d.b ? Object.assign({}, d.b) : null, tp0: d.tp, sl0: d.sl }; box.setPointerCapture(e.pointerId); setPanCursor(); }
+    bump(); return;
+  }
+  const pt = toPt(x, y, true);
+  if (DR.tool === "long" || DR.tool === "short") { DR.items.push(newPosition(DR.tool, pt)); DR.sel = DR.items.length - 1; saveDR(); setTool("cursor"); return; }
+  if (DR.tool === "hline" || DR.tool === "vline") { DR.items.push({ type: DR.tool, a: pt }); DR.sel = DR.items.length - 1; saveDR(); setTool("cursor"); return; }
+  if (!DR.temp) { DR.temp = { type: DR.tool, a: pt, b: pt }; bump(); return; }
+  DR.temp.b = pt;
+  if (DR.tool === "measure") { DR.measure = DR.temp; DR.temp = null; setTool("cursor"); return; }
+  DR.items.push(DR.temp); DR.temp = null; DR.sel = DR.items.length - 1; saveDR(); setTool("cursor");
+});
+box.addEventListener("pointerup", () => { if (DR.drag) { DR.drag = null; saveDR(); setPanCursor(); bump(); } });
+document.addEventListener("keydown", (e) => {
+  if (e.target.tagName === "INPUT" || !$("symDlg").hidden) return;
+  if (!e.altKey && !e.ctrlKey && !e.metaKey && e.key.length === 1 && /\p{L}/u.test(e.key)) { openSym(); $("symQ").value = e.key; renderSym(); e.preventDefault(); return; }
+  if (e.key === "Escape") { DR.temp = null; DR.measure = null; DR.sel = -1; setTool("cursor"); $("pop").hidden = true; $("indBtn").setAttribute("aria-pressed", "false"); }
+  else if ((e.key === "Delete" || e.key === "Backspace") && DR.sel >= 0) { DR.items.splice(DR.sel, 1); DR.sel = -1; saveDR(); bump(); }
+  else if (e.altKey) { const m = { t: "trend", h: "hline", v: "vline", f: "fib", r: "rect", m: "measure", l: "long", s: "short" }[e.key.toLowerCase()]; if (m) { e.preventDefault(); setTool(m); } }
+});
+
+function pill(text, x, y, bg, fg, align) {
+  ctx.font = "500 11px IBM Plex Mono, ui-monospace, monospace"; const lines = text.split("\n"); const tw = Math.max(...lines.map((l) => ctx.measureText(l).width)) + 12, th = lines.length * 15 + 6;
+  let lx = align === "right" ? x - tw : align === "center" ? x - tw / 2 : x; let ly = y - th / 2;
+  ctx.fillStyle = bg; ctx.beginPath(); ctx.roundRect ? ctx.roundRect(lx, ly, tw, th, 4) : ctx.rect(lx, ly, tw, th); ctx.fill();
+  ctx.fillStyle = fg; ctx.textBaseline = "middle"; lines.forEach((l, k) => ctx.fillText(l, lx + 6, ly + 3 + 7.5 + k * 15));
+}
+function handle(x, y) { ctx.fillStyle = C.bg; ctx.strokeStyle = C.draw; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(x, y, 4.5, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); }
+function drawItem(d, sel, ghost) {
+  const { w, h } = geom(); const ax = X(d.a.t), ay = Y(d.a.p); const bx = d.b ? X(d.b.t) : null, by = d.b ? Y(d.b.p) : null;
+  if (ax == null || ay == null) return;
+  const col = d.type === "measure" ? (d.b.p >= d.a.p ? C.warm : C.cool) : C.draw;
+  ctx.strokeStyle = col; ctx.lineWidth = sel ? 2 : 1.5; ctx.setLineDash(ghost ? [5, 4] : []);
+  const dT = d.b ? d.b.p - d.a.p : 0, dt = d.b ? d.b.t - d.a.t : 0;
+  if (d.type === "hline") { ctx.beginPath(); ctx.moveTo(0, ay); ctx.lineTo(w, ay); ctx.stroke(); pill(nf(d.a.p) + "°", w - 4, ay, col, C.bg, "right"); if (sel) handle(w / 2, ay); }
+  else if (d.type === "vline") { ctx.beginPath(); ctx.moveTo(ax, 0); ctx.lineTo(ax, h); ctx.stroke(); pill(periodLabel(S.tf, Math.round(d.a.t)).split(",")[0], ax, h - 14, col, C.bg, "center"); if (sel) handle(ax, h / 2); }
+  else if (d.type === "trend" || d.type === "ray") {
+    let ex = bx, ey = by; if (d.type === "ray" && bx !== ax) { ex = bx > ax ? w : 0; ey = ay + ((by - ay) * (ex - ax)) / (bx - ax); }
+    ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(ex, ey); ctx.stroke();
+    if (sel || ghost) { const days = dt / 86400; pill(`${sg(dT)} °C · ${dur(dt)}\n${days ? sg(dT / days, 2) + " °C/d." : ""}`, (ax + bx) / 2 + 8, (ay + by) / 2 - 22, A(col, 0.92), C.bg); }
+    if (sel) { handle(ax, ay); handle(bx, by); }
+  }
+  else if (d.type === "rect") { ctx.fillStyle = A(col, 0.1); ctx.fillRect(Math.min(ax, bx), Math.min(ay, by), Math.abs(bx - ax), Math.abs(by - ay)); ctx.strokeRect(Math.min(ax, bx), Math.min(ay, by), Math.abs(bx - ax), Math.abs(by - ay));
+    if (sel || ghost) pill(`${nf(Math.min(d.a.p, d.b.p))}…${nf(Math.max(d.a.p, d.b.p))}° · ${dur(dt)}`, Math.min(ax, bx), Math.min(ay, by) - 14, A(col, 0.92), C.bg);
+    if (sel) { handle(ax, ay); handle(bx, by); } }
+  else if (d.type === "fib") {
+    const lv = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1], x0 = Math.min(ax, bx), x1 = Math.max(ax, bx);
+    const fc = [C.v("--i4"), C.v("--i5"), C.v("--i1"), C.v("--i6"), C.v("--i3"), C.v("--rain"), C.v("--i4")];
+    lv.forEach((f, k) => { const p = d.b.p + (d.a.p - d.b.p) * f, yy = Y(p); if (k < lv.length - 1) { const yn = Y(d.b.p + (d.a.p - d.b.p) * lv[k + 1]); ctx.fillStyle = A(fc[k], 0.07); ctx.fillRect(x0, Math.min(yy, yn), x1 - x0, Math.abs(yn - yy)); }
+      ctx.strokeStyle = fc[k]; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x0, yy); ctx.lineTo(x1, yy); ctx.stroke();
+      ctx.font = "11px IBM Plex Mono, monospace"; ctx.fillStyle = fc[k]; ctx.textBaseline = "bottom"; ctx.fillText(`${f} (${nf(p)}°)`, x0 + 4, yy - 1); });
+    ctx.strokeStyle = A(col, 0.5); ctx.setLineDash([4, 4]); ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke(); ctx.setLineDash([]);
+    if (sel) { handle(ax, ay); handle(bx, by); } }
+  else if (isPos(d)) drawPosition(d, sel);
+  else if (d.type === "measure") {
+    ctx.fillStyle = A(col, 0.16); ctx.fillRect(Math.min(ax, bx), Math.min(ay, by), Math.abs(bx - ax), Math.abs(by - ay));
+    ctx.beginPath(); ctx.moveTo((ax + bx) / 2, ay); ctx.lineTo((ax + bx) / 2, by); ctx.moveTo(ax, (ay + by) / 2); ctx.lineTo(bx, (ay + by) / 2); ctx.stroke();
+    const nb = Math.round(timeToLogical(d.b.t) - timeToLogical(d.a.t));
+    pill(`${sg(dT)} °C\n${nb} žvak. · ${dur(dt)}`, (ax + bx) / 2, by + (by >= ay ? 26 : -26), col, C.bg, "center");
+  }
+  ctx.setLineDash([]);
+}
+function drawPosition(d, sel) {
+  const g = posGeom(d); if (g.x0 == null || g.x1 == null || g.ye == null) return;
+  const dir = d.type === "long" ? 1 : -1, ok = C.v("--ok"), bad = C.danger, w = Math.max(6, g.x1 - g.x0);
+  const risk = Math.abs(d.a.p - d.sl), reward = Math.abs(d.tp - d.a.p), res = posResult(d);
+  const xr = res.i != null ? X(TIMES[res.i]) : null, xe = xr != null ? Math.min(g.x1, Math.max(g.x0, xr)) : g.x0;
+  // zonos: blyškios visam laikotarpiui, ryškesnės iki rezultato
+  ctx.fillStyle = A(ok, 0.12); ctx.fillRect(g.x0, Math.min(g.ye, g.yt), w, Math.abs(g.yt - g.ye));
+  ctx.fillStyle = A(bad, 0.12); ctx.fillRect(g.x0, Math.min(g.ye, g.ys), w, Math.abs(g.ys - g.ye));
+  if (xe > g.x0) {
+    if (res.res !== "sl") { ctx.fillStyle = A(ok, 0.16); ctx.fillRect(g.x0, Math.min(g.ye, g.yt), xe - g.x0, Math.abs(g.yt - g.ye)); }
+    if (res.res !== "tp") { ctx.fillStyle = A(bad, 0.16); ctx.fillRect(g.x0, Math.min(g.ye, g.ys), xe - g.x0, Math.abs(g.ys - g.ye)); }
+  }
+  ctx.lineWidth = sel ? 1.5 : 1; ctx.setLineDash([]);
+  [[g.yt, ok], [g.ys, bad], [g.ye, C.muted]].forEach(([yy, c]) => { ctx.strokeStyle = c; ctx.beginPath(); ctx.moveTo(g.x0, yy); ctx.lineTo(g.x0 + w, yy); ctx.stroke(); });
+  // kelias iki rezultato
+  if (res.price != null && xr != null) {
+    ctx.strokeStyle = res.res === "tp" ? ok : res.res === "sl" ? bad : C.fg; ctx.setLineDash([4, 3]); ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(g.x0, g.ye); ctx.lineTo(xe, Y(res.price)); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = ctx.strokeStyle; ctx.beginPath(); ctx.arc(xe, Y(res.price), 3.5, 0, Math.PI * 2); ctx.fill();
+  }
+  // etiketės
+  const rr = reward / (risk || 1e-9), up = dir > 0;
+  const tpTxt = `Tikslas ${nf(d.tp)}° · ${sg(d.tp - d.a.p)}° · ${nf(rr, 1)}R`, slTxt = `Stop ${nf(d.sl)}° · ${sg(d.sl - d.a.p)}° · −1R`;
+  pill(tpTxt, g.x0 + 4, g.yt + (up ? -12 : 12), A(ok, 0.95), C.bg);
+  pill(slTxt, g.x0 + 4, g.ys + (up ? 12 : -12), A(bad, 0.95), C.bg);
+  const elapsed = res.i != null ? dur(TIMES[res.i] + STEP - d.a.t) : "";
+  const badge = res.res === "tp" ? [`✓ Tikslas pasiektas · +${nf(rr, 1)}R · po ${elapsed}`, ok]
+    : res.res === "sl" ? [`✗ Stop suveikė · −1R · po ${elapsed}${res.both ? " (abu toje pačioje žvakėje)" : ""}`, bad]
+    : res.res === "open" ? [`● Atvira · dabar ${sg(res.pnl)}° (${sg(res.r, 2)}R)`, C.accent]
+    : res.res === "end" ? [`Laikas baigėsi · ${sg(res.pnl)}° (${sg(res.r, 2)}R)`, C.muted]
+    : [`${up ? "Long" : "Short"} · rizika/pelnas 1:${nf(rr, 1)}`, C.muted];
+  pill(badge[0], g.x0 + 4, g.ye + (up ? 12 : -12) * (Math.abs(g.ys - g.ye) > 30 ? 1 : -1), badge[1], C.bg);
+  if (sel) { handle(g.x0, g.yt); handle(g.x0, g.ys); handle(g.x1, g.ye); }
+}
+function renderDrawings() {
+  const dpr = window.devicePixelRatio || 1, W2 = box.clientWidth, H2 = box.clientHeight;
+  if (cv.width !== Math.round(W2 * dpr) || cv.height !== Math.round(H2 * dpr)) { cv.width = Math.round(W2 * dpr); cv.height = Math.round(H2 * dpr); cv.style.width = W2 + "px"; cv.style.height = H2 + "px"; }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W2, H2);
+  if (!chart) return; const { w, h } = geom();
+  ctx.save(); ctx.beginPath(); ctx.rect(0, 0, w, h); ctx.clip();
+  DR.items.forEach((d, k) => drawItem(d, k === DR.sel || k === DR.hover));
+  if (DR.temp) drawItem(DR.temp, true, true);
+  if (DR.measure) drawItem(DR.measure, true);
+  ctx.restore();
+}
+function placePaneLabels() {
+  if (!chart) return; const panes = chart.panes(); const br = box.getBoundingClientRect();
+  PANES.forEach((p, k) => { const el = $("pl" + k), pn = panes[p.idx]; const he = pn && pn.getHTMLElement(); if (!el || !he) return; const r = he.getBoundingClientRect(); el.style.top = r.top - br.top + 4 + "px"; });
+}
+let lastSig = "";
+function loop() {
+  requestAnimationFrame(loop); if (!chart || !main) return;
+  const ts = chart.timeScale(), lr = ts.getVisibleLogicalRange();
+  const sig = [lr && lr.from.toFixed(3), lr && lr.to.toFixed(3), main.priceToCoordinate(0), main.priceToCoordinate(10), chart.panes().map((p) => p.getHeight()).join(","), ts.width(), box.clientWidth, DR.ver].join("|");
+  if (sig !== lastSig) { lastSig = sig; renderDrawings(); placePaneLabels(); }
+}
+
+/* ---------- valdikliai ---------- */
+function renderTop() {
+  $("tfs").innerHTML = TFS.map((t) => `<button class="btn mono" data-tf="${t.id}" aria-pressed="${S.tf === t.id}">${t.label}</button>`).join("");
+  $("types").innerHTML = TYPES.map((t) => `<button class="btn" data-ty="${t.id}" aria-pressed="${S.type === t.id}">${t.label}</button>`).join("");
+  $("tfs").querySelectorAll("button").forEach((b) => (b.onclick = () => { S.tf = b.dataset.tf; saveS(); renderTop(); build(); }));
+  $("types").querySelectorAll("button").forEach((b) => (b.onclick = () => { S.type = b.dataset.ty; saveS(); renderTop(); build(); }));
+}
+const RANGES = [["1 sav.", 7], ["1 mėn.", 30.4], ["3 mėn.", 91], ["6 mėn.", 182], ["1 m.", 365], ["2 m.", 730], ["5 m.", 1826], ["Viskas", 0]];
+$("ranges").innerHTML = RANGES.map((r, k) => `<button class="btn mono" data-r="${k}">${r[0]}</button>`).join("");
+$("ranges").querySelectorAll("button").forEach((b) => (b.onclick = () => {
+  const days = RANGES[+b.dataset.r][1]; const last = TIMES[TIMES.length - 1];
+  if (!days) { chart.timeScale().fitContent(); return; }
+  const best = days <= 10 ? "1H" : days <= 100 ? (S.tf === "1M" || S.tf === "1W" ? "1D" : S.tf) : days >= 700 && (S.tf === "1H" || S.tf === "4H") ? "1D" : S.tf;
+  if (best !== S.tf) { S.tf = best; saveS(); renderTop(); build(); }
+  chart.timeScale().setVisibleLogicalRange({ from: timeToLogical(last - days * 86400), to: TIMES.length - 1 + 3 });
+}));
+const gi = $("goto"); gi.min = FIRST; gi.max = LAST;
+gi.onchange = () => { if (!gi.value) return; const t = Date.UTC(+gi.value.slice(0, 4), +gi.value.slice(5, 7) - 1, +gi.value.slice(8, 10)) / 1000;
+  const r = chart.timeScale().getVisibleLogicalRange(); const half = r ? (r.to - r.from) / 2 : 60; const c = timeToLogical(bucket(S.tf, t)); chart.timeScale().setVisibleLogicalRange({ from: c - half, to: c + half });
+  const i = Math.round(c); curIdx = -1; showIdx(Math.max(0, Math.min(BARS.length - 1, i))); };
+
+function renderPop() {
+  const row = (d) => { const st = S.ind[d.id]; const col = d.c ? C.v(d.c) : d.id === "precip" ? C.rain : d.id === "zero" ? C.cool : C.warm;
+    const ps = Object.keys(st.p).map((k) => `<label>${PLAB[k]} <input type="number" id="p-${d.id}-${k}" data-id="${d.id}" data-k="${k}" value="${st.p[k]}" min="${k === "k" ? 0.5 : 2}" max="400" step="${k === "k" ? 0.5 : 1}"></label>`).join("");
+    return `<div class="irow"><input type="checkbox" id="i-${d.id}" data-id="${d.id}" ${st.on ? "checked" : ""}><span class="sw" style="background:${col}"></span>
+      <label class="nm" for="i-${d.id}">${d.name}${d.pane ? ' <span class="chip">atskiras langas</span>' : ""}<small>${d.desc}</small></label><div class="pr">${ps}</div></div>`; };
+  $("pop").innerHTML = `<div class="pophead"><h3>Orų duomenys</h3><button class="btn" id="popClose" aria-label="Uždaryti">✕</button></div>${IND.filter((d) => d.g === "w").map(row).join("")}
+    <h3>Techniniai indikatoriai</h3>${IND.filter((d) => d.g === "t").map(row).join("")}`;
+  $("popClose").onclick = togglePop;
+  $("pop").querySelectorAll('input[type=checkbox]').forEach((el) => (el.onchange = () => { S.ind[el.dataset.id].on = el.checked; saveS(); build(); }));
+  $("pop").querySelectorAll('input[type=number]').forEach((el) => (el.onchange = () => { const v = parseFloat(el.value); if (!(v > 0)) return; S.ind[el.dataset.id].p[el.dataset.k] = v; S.ind[el.dataset.id].on = true; saveS(); renderPop(); build(); }));
+}
+function togglePop() { const p = $("pop"); p.hidden = !p.hidden; $("indBtn").setAttribute("aria-pressed", String(!p.hidden)); $("indBtn").setAttribute("aria-expanded", String(!p.hidden)); if (!p.hidden) renderPop(); }
+$("indBtn").onclick = togglePop;
+
+$("themeBtn").onclick = () => { const root = document.documentElement; const dark = root.dataset.theme ? root.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+  root.dataset.theme = dark ? "light" : "dark"; build(); if (!$("pop").hidden) renderPop(); };
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => build());
+
+
+/* ---------- gyvi duomenys: data/live/<stotis>.json kas 30 min. papildo GitHub Actions (scripts/collect.mjs) ---------- */
+const API = window.__API || "data/live/";
+const fresh = () => "?t=" + Math.floor(Date.now() / 60000);
+const LV = { on: false, timer: null };
+const SEED_LAST = RAW.t0 + (RAW.n - 1) * 3600;
+function setLive(mode, text, title) { const el = $("live"); el.dataset.mode = mode; el.querySelector("span").textContent = text; el.title = title || text; }
+function putRows(rows) {
+  const ARR = [T, F, W, G, DIR, CL, PR, HU, RN, SN, K]; let changed = 0;
+  rows.forEach((r) => {
+    const i = Math.round((r[0] - RAW.t0) / 3600); if (!(i >= 0)) return;
+    while (N <= i) { ARR.forEach((a) => a.push(null)); const u = RAW.t0 + N * 3600; LT.push(u + tzOff(u)); N++; changed++; }
+    let code = r[11] || null; if (code) { const c = CONDS.indexOf(code); code = c >= 0 ? c : CONDS.push(code) - 1; }
+    const nv = r.slice(1, 11).map((v) => (v == null ? null : +v)).concat([code]);
+    ARR.forEach((a, k) => { if (a[i] !== nv[k]) { a[i] = nv[k]; changed++; } });
+  });
+  return changed;
+}
+function applyLive() {
+  const r = chart && chart.timeScale().getVisibleLogicalRange(), oldLen = BARS.length;
+  for (const k in cache) delete cache[k];
+  I1 = N; LAST = dstr(LT[N - 1]); gi.max = LAST;
+  build();
+  if (r && r.to >= oldLen - 2) { const off = r.to - (oldLen - 1), w = r.to - r.from; chart.timeScale().setVisibleLogicalRange({ from: BARS.length - 1 + off - w, to: BARS.length - 1 + off }); }
+}
+const when = (t) => { const d = new Date(t * 1000), o = { timeZone: "Europe/Vilnius" };
+  const same = d.toLocaleDateString("lt-LT", o) === new Date().toLocaleDateString("lt-LT", o);
+  return (same ? "" : d.toLocaleDateString("lt-LT", Object.assign({ month: "2-digit", day: "2-digit" }, o)) + " ") + d.toLocaleTimeString("lt-LT", Object.assign({ hour: "2-digit", minute: "2-digit" }, o)); };
+async function liveTick(first) {
+  if (first && window.__STATIONS) setLive("load", "Jungiamasi…", "Ieškoma naujausių matavimų");
+  try {
+    // pirmą kartą – viskas po statinės istorijos; vėliau – paskutinės 6 val., kad pasigautų pataisymus
+    const since = first ? SEED_LAST : RAW.t0 + (N - 1) * 3600 - 6 * 3600;
+    const r = await fetch(API + encodeURIComponent(ST.code) + ".json" + fresh());
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const j = await r.json(); if (!j || !Array.isArray(j.rows)) throw new Error("neatpažintas atsakymas");
+    j.rows = j.rows.filter((row) => row[0] >= since);
+    const changed = putRows(j.rows);
+    LV.on = true;
+    if (changed || first) applyLive();
+    const lastT = RAW.t0 + (N - 1) * 3600, late = Date.now() / 1000 - lastT > 3 * 3600;
+    setLive(late ? "load" : "on", (late ? "Vėluoja · " : "Gyvai · ") + when(lastT),
+      "Paskutinis matavimas " + when(lastT) + " Vilniaus laiku. Serveris duomenis renka kas 30 min." + (j.updated ? " Paskutinis rinkimas " + when(Date.parse(j.updated) / 1000) + "." : ""));
+  } catch (e) {
+    if (!LV.on) { setLive("off", "Archyvas", "Gyvų duomenų šaltinis nepasiekiamas – rodomas archyvas iki " + LAST + "."); return; }
+    setLive("err", "Ryšio klaida", "Nepavyko atnaujinti (" + e.message + "). Bandysiu po 10 min.");
+  }
+  clearTimeout(LV.timer); LV.timer = setTimeout(() => liveTick(false), 10 * 60 * 1000);
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden && LV.on) liveTick(false); });
+
+/* ---------- stoties (tikerio) pasirinkimas ---------- */
+$("symTick").textContent = ST.ticker;
+$("symName").textContent = ST.name + " · oro temperatūra 2 m aukštyje";
+const normS = (x) => x.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+let snap = null, snapAt = 0, symSel = 0, symItems = [];
+function openSym() {
+  $("symDlg").hidden = false; $("symQ").value = ""; symSel = 0; renderSym(); $("symQ").focus();
+  if (window.__STATIONS && Date.now() - snapAt > 5 * 60 * 1000) {
+    fetch(API + "snapshot.json" + fresh()).then((r) => (r.ok ? r.json() : null)).then((j) => { if (j) { snap = j; snapAt = Date.now(); if (!$("symDlg").hidden) renderSym(); } }).catch(() => {});
+  }
+}
+function closeSym() { $("symDlg").hidden = true; $("symBtn").focus(); }
+function renderSym() {
+  const q = normS($("symQ").value.trim());
+  symItems = STS.filter((x) => !q || normS(x.name).includes(q) || x.ticker.toLowerCase().includes(q));
+  symSel = Math.max(0, Math.min(symSel, symItems.length - 1));
+  $("symList").innerHTML = symItems.map((x, k) => {
+    const sp = snap && snap[x.code], live = !!(sp && sp[1] != null), t = live ? sp[1] : x.last;
+    return `<button class="symrow${k === symSel ? " sel" : ""}${x.code === ST.code ? " cur" : ""}" role="option" aria-selected="${k === symSel}" data-code="${x.code}">` +
+      `<b>${x.ticker}</b><span>${x.name}<small>duomenys nuo ${x.from || "–"}</small></span>` +
+      `<em style="color:${t == null ? "var(--muted)" : t >= 0 ? "var(--warm)" : "var(--cool)"}" title="${live ? "Paskutinis matavimas " + when(sp[0]) : "Paskutinė archyvo reikšmė"}">${nf(t)}°</em></button>`;
+  }).join("") || '<p class="dlgnote">Tokios stoties nėra.</p>';
+  $("symList").querySelectorAll(".symrow").forEach((b) => (b.onclick = () => pickSym(b.dataset.code)));
+  const sel = $("symList").querySelector(".sel"); if (sel) sel.scrollIntoView({ block: "nearest" });
+  $("symNote").textContent = window.__STATIONS
+    ? `${STS.length} LHMT automatinės stotys. Dešinėje – paskutinė išmatuota temperatūra.`
+    : "Šioje versijoje įdėta tik viena stotis. Visos stotys – pilnoje svetainės versijoje.";
+}
+function pickSym(code) {
+  if (code === ST.code) return closeSym();
+  try { localStorage.setItem("vt.station", code); } catch (e) {}
+  location.hash = code; location.reload();
+}
+$("symBtn").onclick = openSym; $("symClose").onclick = closeSym;
+$("symQ").oninput = () => { symSel = 0; renderSym(); };
+$("symQ").onkeydown = (e) => {
+  if (e.key === "ArrowDown") { symSel = Math.min(symItems.length - 1, symSel + 1); renderSym(); e.preventDefault(); }
+  else if (e.key === "ArrowUp") { symSel = Math.max(0, symSel - 1); renderSym(); e.preventDefault(); }
+  else if (e.key === "Enter" && symItems[symSel]) pickSym(symItems[symSel].code);
+  else if (e.key === "Escape") closeSym();
+};
+$("symDlg").onclick = (e) => { if (e.target.id === "symDlg") closeSym(); };
+window.addEventListener("hashchange", () => { const c = decodeURIComponent(location.hash.slice(1)); if (c && c !== ST.code && STS.some((x) => x.code === c)) location.reload(); });
+
+renderTop(); renderRail(); build(); loop(); liveTick(true);
+}
+if (window.__WX) boot();
+else (async () => {
+  const lg = document.getElementById("legend"); lg.textContent = "Kraunama…";
+  try {
+    const sr = await fetch(window.__STATIONS_URL); if (!sr.ok) throw new Error("HTTP " + sr.status);
+    const st = (window.__STATIONS = await sr.json());
+    let pref = null; try { pref = localStorage.getItem("vt.station"); } catch (e) {}
+    const want = decodeURIComponent(location.hash.slice(1)) || pref || "vilniaus-ams";
+    window.__STATION = st.find((x) => x.code === want) || st.find((x) => x.code === "vilniaus-ams") || st[0];
+    lg.textContent = "Kraunama: " + window.__STATION.name + "…";
+    const r = await fetch("data/st/" + window.__STATION.code + ".json?v=" + (window.__V || "")); if (!r.ok) throw new Error("HTTP " + r.status);
+    window.__WX = await r.json(); boot();
+  } catch (e) { lg.textContent = "Nepavyko įkelti duomenų (" + e.message + "). Perkraukite puslapį."; }
+})();
+</script>
+
+</body>
+</html>
