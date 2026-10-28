@@ -19,7 +19,7 @@ const stations = await readJson(new URL("stations.json", ROOT), []);
 await mkdir(new URL("live/", ROOT), { recursive: true });
 const snapshot = await readJson(new URL("live/snapshot.json", ROOT), {});
 const updated = new Date().toISOString();
-let ok = 0, fail = 0, budget = MAX_CATCHUP_REQUESTS;
+let ok = 0, fail = 0, added = 0, newestObs = 0, budget = MAX_CATCHUP_REQUESTS;
 
 async function fetchObs(code, date) {
   const res = await fetch(API + code + "/observations/" + date, { headers: { accept: "application/json", "user-agent": "orai-terminalas (GitHub Actions)" } });
@@ -56,7 +56,9 @@ for (const st of stations) {
 
     for (const o of obs) {
       const t = Date.parse(o.observationTimeUtc.replace(" ", "T") + "Z") / 1000;
+      if (t > newestObs) newestObs = t;
       if (!(t > archEnd)) continue;
+      if (!byT.has(t)) added++;
       byT.set(t, [t, num(o.airTemperature), num(o.feelsLikeTemperature), num(o.windSpeed), num(o.windGust),
         num(o.windDirection), num(o.cloudCover), num(o.seaLevelPressure), num(o.relativeHumidity),
         num(o.precipitation), num(o.snowDepth), o.conditionCode || null]);
@@ -75,5 +77,6 @@ for (const st of stations) {
 }
 
 await writeFile(new URL("live/snapshot.json", ROOT), JSON.stringify(snapshot));
-console.log(`Atnaujinta ${ok} stočių, nepavyko ${fail}.`);
+const iso = (t) => (t ? new Date(t * 1000).toISOString().slice(0, 16).replace("T", " ") + " UTC" : "–");
+console.log(`Stočių: ${ok} gerai, ${fail} nepavyko. Naujų valandų: ${added}. Naujausias LHMT matavimas: ${iso(newestObs)}.`);
 if (!ok) process.exit(1);
