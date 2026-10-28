@@ -282,6 +282,7 @@ const IND = [
   { id: "bobu", g: "w", name: "Bobų vasara", desc: "Šiltas ir sausas tarpsnis rugsėjo 15 – lapkričio 5 d. po pirmojo atvėsimo: maks. temperatūra bent 2–3° virš normos, be lietaus. Ryški – sodresnė spalva", p: { d: 3 }, c: "--bobu" },
   { id: "sun", g: "w", name: "Saulės patekėjimas ir laida", desc: "Šviesusis paros metas 1 ir 4 val. grafike – kaip biržos prekybos sesija", c: "--sun" },
   { id: "fc", g: "w", name: "LHMT prognozė", desc: "Oficiali valandinė prognozė į priekį: blyškios punktyrinės žvakės ir punktyrinės linijos tuose pačiuose languose (1 val., 4 val., D). 0 – visa prognozė", p: { h: 0 }, c: "--accent" },
+  { id: "fcacc", g: "w", name: "Prognozės tikslumas", desc: "Kiek LHMT prognozė, sudaryta prieš L val. (1, 3, 6, 12, 24, 48, 72, 120), atitiko faktą: punktyrinė prognozės linija ant žvakių ir klaidos langas (prognozė − faktas). Kaupiama nuo 2026-10-28", p: { L: 24 }, pane: 1, c: "--i6" },
   { id: "events", g: "w", name: "Reiškinių žymės", desc: "Perkūnija, lijundra, kruša, pūga ir " + YRS + " m. rekordai", def: true },
   { id: "wind", g: "w", name: "Vėjas", desc: "Vidutinis greitis ir stipriausias gūsis, m/s", pane: 1, def: true, c: "--i3" },
   { id: "pressure", g: "w", name: "Slėgis", desc: "Vidutinis jūros lygio slėgis, hPa", pane: 1, def: true, c: "--i1" },
@@ -296,7 +297,7 @@ const IND = [
   { id: "rsi", g: "t", name: "RSI", desc: "Santykinio stiprumo indeksas", p: { n: 14 }, pane: 1, c: "--i2" },
   { id: "macd", g: "t", name: "MACD", desc: "Greitas EMA − lėtas EMA, signalinė linija", p: { f: 12, s: 26, g: 9 }, pane: 1, c: "--i3" },
 ];
-const PLAB = { n: "periodas", k: "k", f: "greitas", s: "lėtas", g: "signalas", d: "min. dienų", h: "valandų (0 – visa)" };
+const PLAB = { n: "periodas", k: "k", f: "greitas", s: "lėtas", g: "signalas", d: "min. dienų", h: "valandų (0 – visa)", L: "prieš valandų" };
 
 function lsGet(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } }
 function lsSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
@@ -491,6 +492,33 @@ function fcBars(tf, h) {
   out.forEach((x) => { x.feels = x.fn ? x.fs / x.fn : null; x.wind = x.wn ? x.ws / x.wn : null; x.cloud = x.cn ? x.cs / x.cn : null; x.pres = x.pn ? x.ps / x.pn : null; x.hum = x.hn ? x.hs / x.hn : null; });
   return out.length ? out : null;
 }
+/* ---------- prognozių archyvas (data/fcarchive/<stotis>/<mėnuo>.json) tikslumui tikrinti ---------- */
+const LEADS = [1, 3, 6, 12, 24, 48, 72, 120];
+let ACC = null, accLoading = false;
+async function loadAcc() {
+  if (accLoading) return; accLoading = true;
+  try {
+    const ix = await (await fetch("data/fcarchive/index.json" + fresh())).json(), me = ix[ST.code];
+    const m = new Map();
+    if (me) for (const mo of me.months) { const r = await fetch("data/fcarchive/" + encodeURIComponent(ST.code) + "/" + mo + ".json" + fresh()); if (r.ok) Object.entries(await r.json()).forEach(([t, v]) => m.set(+t, v)); }
+    ACC = { map: m, last: me ? me.last : null };
+    if (S.ind.fcacc.on && chart) build();
+  } catch (e) { ACC = { map: new Map(), last: null }; } finally { accLoading = false; }
+}
+// prognozė (sudaryta ≥ L val. prieš) ir faktas kiekvienai žvakei; stat – visų sutapusių valandų MAE ir poslinkis
+function accSeries(tf, L) {
+  const per = new Map(); let n = 0, abs = 0, bias = 0;
+  ACC.map.forEach((v, t) => {
+    const f = v[L]; if (!f || f[0] == null) return;
+    const i = Math.round((t - RAW.t0) / 3600), a = T[i]; if (a == null || i < 0 || i >= N) return;
+    const key = bucket(tf, t + tzOff(t)); let e = per.get(key); if (!e) per.set(key, (e = { f: 0, a: 0, n: 0 }));
+    e.f += f[0]; e.a += a; e.n++; n++; abs += Math.abs(f[0] - a); bias += f[0] - a;
+  });
+  const fc = BARS.map((b) => { const e = per.get(b.time); return e ? e.f / e.n : null; });
+  const err = BARS.map((b) => { const e = per.get(b.time); return e ? (e.f - e.a) / e.n : null; });
+  return { fc, err, n, mae: n ? abs / n : null, bias: n ? bias / n : null };
+}
+
 async function loadFc() {
   try {
     const r = await fetch("data/forecast/" + encodeURIComponent(ST.code) + ".json" + fresh()); if (!r.ok) return;
@@ -641,6 +669,19 @@ function build() {
   if (on("snow")) { const p = sub("Sniego danga"), col = C.snowc;
     const s = chart.addSeries(LW.AreaSeries, { lineColor: col, topColor: A(col, 0.45), bottomColor: A(col, 0.05), lineWidth: 1.5, priceFormat: fmtU(" cm", 0), priceLineVisible: false }, p); s.setData(ts(BARS.map((b) => b.smax)));
     addLeg(p, "maks.", col, (i) => nf(BARS[i].smax, 0) + " cm"); }
+  if (on("fcacc")) {
+    const L = LEADS.reduce((a, b) => (Math.abs(b - P("fcacc").L) < Math.abs(a - P("fcacc").L) ? b : a)), col = C.v("--i6");
+    if (!ACC) loadAcc();
+    const A2 = ACC ? accSeries(tf, L) : { fc: [], err: [], n: 0 };
+    const p = sub("Prognozės klaida · prieš " + L + " val.");
+    const h = chart.addSeries(LW.HistogramSeries, { priceFormat: fmtU("°"), lastValueVisible: false, priceLineVisible: false }, p);
+    h.setData(BARS.map((b, i) => (A2.err[i] == null ? { time: b.time } : { time: b.time, value: A2.err[i], color: A(A2.err[i] >= 0 ? C.warm : C.cool, 0.6) })));
+    h.createPriceLine({ price: 0, color: A(C.muted, 0.6), lineStyle: 2, lineWidth: 1, axisLabelVisible: false });
+    if (A2.n) { const s2 = chart.addSeries(LW.LineSeries, { color: A(col, 0.9), lineWidth: 1.5, lineStyle: 2, priceFormat: tfmt, lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false }); s2.setData(ts(A2.fc));
+      LEG.push({ pane: 0, name: "Prognozė prieš " + L + " val.", color: col, get: (i) => (A2.fc[i] == null ? "–" : nf(A2.fc[i]) + "°") }); }
+    addLeg(p, "klaida", col, (i) => (A2.err[i] == null ? "–" : sg(A2.err[i]) + "°"));
+    addLeg(p, A2.n ? "visa: vid. abs. klaida" : "kaupiama nuo 2026-10-28", C.muted, () => (A2.n ? nf(A2.mae) + "°, poslinkis " + sg(A2.bias) + "°, " + A2.n + " val." : "– duomenų dar nėra"));
+  }
   if (on("atr")) { const p = sub("Amplitudė"), col = C.v("--i7"), n = P("atr").n, a = atr(BARS, n);
     const h = chart.addSeries(LW.HistogramSeries, { color: A(col, 0.35), priceFormat: fmtU("°"), lastValueVisible: false, priceLineVisible: false }, p); h.setData(BARS.map((b) => ({ time: b.time, value: b.range })));
     const l = chart.addSeries(LW.LineSeries, { color: col, lineWidth: 1.5, priceFormat: fmtU("°"), priceLineVisible: false }, p); l.setData(ts(a));
@@ -1102,7 +1143,7 @@ gi.onchange = () => { if (!gi.value) return; const t = Date.UTC(+gi.value.slice(
 
 function renderPop() {
   const row = (d) => { const st = S.ind[d.id]; const col = d.c ? C.v(d.c) : d.id === "precip" ? C.rain : d.id === "zero" ? C.cool : C.warm;
-    const ps = Object.keys(st.p).map((k) => `<label>${PLAB[k]} <input type="number" id="p-${d.id}-${k}" data-id="${d.id}" data-k="${k}" value="${st.p[k]}" min="${k === "k" ? 0.5 : k === "h" ? 0 : 2}" max="${k === "h" ? 240 : 400}" step="${k === "k" ? 0.5 : 1}"></label>`).join("");
+    const ps = Object.keys(st.p).map((k) => `<label>${PLAB[k]} <input type="number" id="p-${d.id}-${k}" data-id="${d.id}" data-k="${k}" value="${st.p[k]}" min="${k === "k" ? 0.5 : k === "h" ? 0 : k === "L" ? 1 : 2}" max="${k === "h" ? 240 : k === "L" ? 120 : 400}" step="${k === "k" ? 0.5 : 1}"></label>`).join("");
     return `<div class="irow"><input type="checkbox" id="i-${d.id}" data-id="${d.id}" ${st.on ? "checked" : ""}><span class="sw" style="background:${col}"></span>
       <label class="nm" for="i-${d.id}">${d.name}${d.pane ? ' <span class="chip">atskiras langas</span>' : ""}<small>${d.desc}</small></label><div class="pr">${ps}</div></div>`; };
   $("pop").innerHTML = `<div class="pophead"><h3>Orų duomenys</h3><button class="btn" id="popClose" aria-label="Uždaryti">✕</button></div>${IND.filter((d) => d.g === "w").map(row).join("")}

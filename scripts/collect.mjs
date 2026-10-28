@@ -7,6 +7,9 @@
 // data/live/snapshot.json: { <stotis>: [t, temperatūra, sąlygos] } – stočių sąrašui.
 // data/forecast/<stotis>.json: { created, fetched, place, rows: [[t, T, F, W, G, D, C, P, H, R, sąlygos], ...] } –
 //   oficiali LHMT prognozė (long-term) artimiausiai vietovei; atnaujinama ne dažniau kaip kas 50 min.
+// data/fcarchive/<stotis>/<YYYY-MM>.json: { "<t>": { "<L>": [T, R, W] } } – prognozių archyvas tikslumui tikrinti:
+//   kiekvienai valandai t ir pastovumui L (1, 3, 6, 12, 24, 48, 72, 120 val.) – vėliausia prognozė, sudaryta bent L val. prieš t.
+//   data/fcarchive/index.json: { <stotis>: { last: <paskutinės archyvuotos prognozės sudarymo laikas>, months: [...] } }
 
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 
@@ -110,19 +113,46 @@ async function forecasts() {
     }
     await writeFile(mapFile, JSON.stringify(map));
   }
-  let ok = 0, skip = 0;
+  let ok = 0, skip = 0, arch = 0;
+  const idxFile = new URL("../fcarchive/index.json", dir), idx = await readJson(idxFile, {});
   for (const st of stations) {
     const place = map[st.code]; if (!place) continue;
     const file = new URL(st.code + ".json", dir), prev = await readJson(file, null);
-    if (prev && Date.now() - Date.parse(prev.fetched) < 50 * 60 * 1000) { skip++; continue; }
-    try {
+    let cur = prev;
+    if (prev && Date.now() - Date.parse(prev.fetched) < 50 * 60 * 1000) skip++;
+    else try {
       const j = await getJson(API.replace("stations/", "places/") + place.code + "/forecasts/long-term");
-      if (prev && prev.created === j.forecastCreationTimeUtc) { skip++; continue; } // nauja prognozė dar neišleista – nėra ką rašyti
-      const rows = (j.forecastTimestamps || []).map((o) => [Date.parse(o.forecastTimeUtc.replace(" ", "T") + "Z") / 1000, num(o.airTemperature), num(o.feelsLikeTemperature),
-        num(o.windSpeed), num(o.windGust), num(o.windDirection), num(o.cloudCover), num(o.seaLevelPressure), num(o.relativeHumidity), num(o.totalPrecipitation), o.conditionCode || null]);
-      await writeFile(file, JSON.stringify({ created: j.forecastCreationTimeUtc, fetched: new Date().toISOString(), place, rows }));
-      ok++;
+      if (prev && prev.created === j.forecastCreationTimeUtc) skip++; // nauja prognozė dar neišleista – nėra ką rašyti
+      else {
+        const rows = (j.forecastTimestamps || []).map((o) => [Date.parse(o.forecastTimeUtc.replace(" ", "T") + "Z") / 1000, num(o.airTemperature), num(o.feelsLikeTemperature),
+          num(o.windSpeed), num(o.windGust), num(o.windDirection), num(o.cloudCover), num(o.seaLevelPressure), num(o.relativeHumidity), num(o.totalPrecipitation), o.conditionCode || null]);
+        cur = { created: j.forecastCreationTimeUtc, fetched: new Date().toISOString(), place, rows };
+        await writeFile(file, JSON.stringify(cur));
+        ok++;
+      }
     } catch (e) { console.warn("prognozė " + st.code + ": " + e.message); }
+    if (cur && (!idx[st.code] || idx[st.code].last !== cur.created)) { await archive(st.code, cur, idx); arch++; }
   }
-  console.log(`Prognozės: atnaujinta ${ok}, praleista ${skip}.`);
+  await writeFile(idxFile, JSON.stringify(idx));
+  console.log(`Prognozės: atnaujinta ${ok}, praleista ${skip}, archyvuota ${arch}.`);
+}
+
+// ---------- prognozių archyvas tikslumui tikrinti ----------
+async function archive(code, fc, idx) {
+  const LEADS = [1, 3, 6, 12, 24, 48, 72, 120];
+  const c = Date.parse(fc.created.replace(" ", "T") + "Z") / 1000, dir = new URL("../fcarchive/" + code + "/", new URL("forecast/", ROOT));
+  await mkdir(dir, { recursive: true });
+  const byMonth = new Map();
+  for (const r of fc.rows) {
+    const lead = (r[0] - c) / 3600; if (!(lead >= 1) || r[1] == null) continue;
+    const m = new Date(r[0] * 1000).toISOString().slice(0, 7);
+    if (!byMonth.has(m)) byMonth.set(m, await readJson(new URL(m + ".json", dir), {}));
+    const o = byMonth.get(m), e = o[r[0]] || (o[r[0]] = {});
+    // vėlesnė prognozė (mažesnis, bet vis dar ≥ L pastovumas) pakeičia ankstesnę
+    const rd = (v) => (v == null ? null : Math.round(v * 10) / 10);
+    for (const L of LEADS) if (lead >= L) e[L] = [rd(r[1]), rd(r[9]), rd(r[3])];
+  }
+  const ix = idx[code] || (idx[code] = { last: null, months: [] });
+  for (const [m, o] of byMonth) { await writeFile(new URL(m + ".json", dir), JSON.stringify(o)); if (!ix.months.includes(m)) ix.months.push(m); }
+  ix.months.sort(); ix.last = fc.created;
 }
