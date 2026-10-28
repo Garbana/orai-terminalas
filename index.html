@@ -501,22 +501,25 @@ async function loadAcc() {
     const ix = await (await fetch("data/fcarchive/index.json" + fresh())).json(), me = ix[ST.code];
     const m = new Map();
     if (me) for (const mo of me.months) { const r = await fetch("data/fcarchive/" + encodeURIComponent(ST.code) + "/" + mo + ".json" + fresh()); if (r.ok) Object.entries(await r.json()).forEach(([t, v]) => m.set(+t, v)); }
+    const changed = !ACC || ACC.map.size !== m.size || ACC.last !== (me ? me.last : null);
     ACC = { map: m, last: me ? me.last : null };
-    if (S.ind.fcacc.on && chart) build();
+    if (changed && S.ind.fcacc.on && chart) build();
   } catch (e) { ACC = { map: new Map(), last: null }; } finally { accLoading = false; }
 }
 // prognozė (sudaryta ≥ L val. prieš) ir faktas kiekvienai žvakei; stat – visų sutapusių valandų MAE ir poslinkis
 function accSeries(tf, L) {
-  const per = new Map(); let n = 0, abs = 0, bias = 0;
+  const per = new Map(); let n = 0, abs = 0, bias = 0, firstT = Infinity;
   ACC.map.forEach((v, t) => {
     const f = v[L]; if (!f || f[0] == null) return;
+    if (t < firstT) firstT = t;
     const i = Math.round((t - RAW.t0) / 3600), a = T[i]; if (a == null || i < 0 || i >= N) return;
     const key = bucket(tf, t + tzOff(t)); let e = per.get(key); if (!e) per.set(key, (e = { f: 0, a: 0, n: 0 }));
     e.f += f[0]; e.a += a; e.n++; n++; abs += Math.abs(f[0] - a); bias += f[0] - a;
   });
   const fc = BARS.map((b) => { const e = per.get(b.time); return e ? e.f / e.n : null; });
   const err = BARS.map((b) => { const e = per.get(b.time); return e ? (e.f - e.a) / e.n : null; });
-  return { fc, err, n, mae: n ? abs / n : null, bias: n ? bias / n : null };
+  const act = BARS.map((b) => { const e = per.get(b.time); return e ? e.a / e.n : null; });
+  return { fc, err, act, n, mae: n ? abs / n : null, bias: n ? bias / n : null, firstT: isFinite(firstT) ? firstT : null };
 }
 
 async function loadFc() {
@@ -677,10 +680,14 @@ function build() {
     const h = chart.addSeries(LW.HistogramSeries, { priceFormat: fmtU("°"), lastValueVisible: false, priceLineVisible: false }, p);
     h.setData(BARS.map((b, i) => (A2.err[i] == null ? { time: b.time } : { time: b.time, value: A2.err[i], color: A(A2.err[i] >= 0 ? C.warm : C.cool, 0.6) })));
     h.createPriceLine({ price: 0, color: A(C.muted, 0.6), lineStyle: 2, lineWidth: 1, axisLabelVisible: false });
-    if (A2.n) { const s2 = chart.addSeries(LW.LineSeries, { color: A(col, 0.9), lineWidth: 1.5, lineStyle: 2, priceFormat: tfmt, lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false }); s2.setData(ts(A2.fc));
-      LEG.push({ pane: 0, name: "Prognozė prieš " + L + " val.", color: col, get: (i) => (A2.fc[i] == null ? "–" : nf(A2.fc[i]) + "°") }); }
-    addLeg(p, "klaida", col, (i) => (A2.err[i] == null ? "–" : sg(A2.err[i]) + "°"));
-    addLeg(p, A2.n ? "visa: vid. abs. klaida" : "kaupiama nuo 2026-10-28", C.muted, () => (A2.n ? nf(A2.mae) + "°, poslinkis " + sg(A2.bias) + "°, " + A2.n + " val." : "– duomenų dar nėra"));
+    if (A2.n) { const s2 = chart.addSeries(LW.LineSeries, { color: A(col, 0.95), lineWidth: 1.5, lineStyle: 2, pointMarkersVisible: true, pointMarkersRadius: 3, priceFormat: tfmt, lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false }); s2.setData(ts(A2.fc));
+      LEG.push({ pane: 0, name: "Prognozė prieš " + L + " val.", color: col, get: (i) => (A2.fc[i] == null ? "–" : nf(A2.fc[i]) + "°, faktas " + nf(A2.act[i]) + "°") }); }
+    addLeg(p, "prognozė / faktas / klaida", col, (i) => (A2.err[i] == null ? "–" : nf(A2.fc[i]) + "° / " + nf(A2.act[i]) + "° / " + sg(A2.err[i]) + "°"));
+    // kada atsiras pirmieji palyginimai: pirmoji archyvuota valanda, kuriai yra prognozė prieš L val.
+    const soon = () => { if (!ACC) return "kraunama…"; if (A2.firstT) return "pirmas palyginimas apie " + ymd(A2.firstT + tzOff(A2.firstT)).slice(5) + " " + hm(A2.firstT + tzOff(A2.firstT) + 3600);
+      let c0 = Infinity; ACC.map.forEach((v, t) => { const k = Object.keys(v).map(Number); if (k.length) c0 = Math.min(c0, t - Math.max(...k) * 3600); });
+      const t1 = (isFinite(c0) ? c0 : Date.now() / 1000) + L * 3600; return "pirmas palyginimas apie " + ymd(t1 + tzOff(t1)).slice(5) + " " + hm(t1 + tzOff(t1)); };
+    addLeg(p, A2.n ? "visa: vid. abs. klaida" : "kaupiama", C.muted, () => (A2.n ? nf(A2.mae) + "°, poslinkis " + sg(A2.bias) + "°, " + A2.n + " val." : soon()));
   }
   if (on("atr")) { const p = sub("Amplitudė"), col = C.v("--i7"), n = P("atr").n, a = atr(BARS, n);
     const h = chart.addSeries(LW.HistogramSeries, { color: A(col, 0.35), priceFormat: fmtU("°"), lastValueVisible: false, priceLineVisible: false }, p); h.setData(BARS.map((b) => ({ time: b.time, value: b.range })));
@@ -1222,7 +1229,7 @@ async function liveTick(first) {
     if (!LV.on) setLive("off", "Archyvas", "Gyvų duomenų šaltinis nepasiekiamas – rodomas archyvas iki " + LAST + ". Spustelėkite, kad bandytumėte dar kartą.");
     else setLive("err", "Ryšio klaida", "Nepavyko atnaujinti (" + e.message + "). Spustelėkite, kad bandytumėte dar kartą.");
   } finally { LV.busy = false; }
-  if (!first) loadFc();
+  if (!first) { loadFc(); if (S.ind.fcacc.on) loadAcc(); }
   clearTimeout(LV.timer); LV.timer = setTimeout(() => liveTick(false), 10 * 60 * 1000);
 }
 function refreshLive() { if (LV.busy) return; setLive("load", "Atnaujinama…", "Ieškoma naujausių matavimų"); liveTick(!LV.on); }
