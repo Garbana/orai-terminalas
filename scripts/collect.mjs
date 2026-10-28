@@ -1,5 +1,5 @@
 // Renka naujausius LHMT stočių matavimus iš api.meteo.lt ir kaupia juos data/live/ aplanke.
-// Paleidžia GitHub Actions kas 15 min. (žr. .github/workflows/collect.yml). Priklausomybių nėra – Node 20+.
+// Paleidžia GitHub Actions kas 10 min. (žr. .github/workflows/collect.yml). Priklausomybių nėra – Node 20+.
 //
 // data/live/<stotis>.json: { updated, rows: [[t, T, F, W, G, D, C, P, H, R, S, sąlygos], ...] }
 //   t – valandos pradžia, UNIX sekundės (UTC); reikšmės – tikri vienetai (°C, m/s, hPa, mm).
