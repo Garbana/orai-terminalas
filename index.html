@@ -281,6 +281,7 @@ const IND = [
   { id: "zero", g: "w", name: "0 °C linija", desc: "Užšalimo riba", def: true },
   { id: "bobu", g: "w", name: "Bobų vasara", desc: "Šiltas ir sausas tarpsnis rugsėjo 15 – lapkričio 5 d. po pirmojo atvėsimo: maks. temperatūra bent 2–3° virš normos, be lietaus. Ryški – sodresnė spalva", p: { d: 3 }, c: "--bobu" },
   { id: "sun", g: "w", name: "Saulės patekėjimas ir laida", desc: "Šviesusis paros metas 1 ir 4 val. grafike – kaip biržos prekybos sesija", c: "--sun" },
+  { id: "fc", g: "w", name: "LHMT prognozė", desc: "Oficiali valandinė prognozė į priekį: blyškios punktyrinės žvakės ir punktyrinės linijos tuose pačiuose languose (1 val., 4 val., D). 0 – visa prognozė", p: { h: 0 }, c: "--accent" },
   { id: "events", g: "w", name: "Reiškinių žymės", desc: "Perkūnija, lijundra, kruša, pūga ir " + YRS + " m. rekordai", def: true },
   { id: "wind", g: "w", name: "Vėjas", desc: "Vidutinis greitis ir stipriausias gūsis, m/s", pane: 1, def: true, c: "--i3" },
   { id: "pressure", g: "w", name: "Slėgis", desc: "Vidutinis jūros lygio slėgis, hPa", pane: 1, def: true, c: "--i1" },
@@ -295,7 +296,7 @@ const IND = [
   { id: "rsi", g: "t", name: "RSI", desc: "Santykinio stiprumo indeksas", p: { n: 14 }, pane: 1, c: "--i2" },
   { id: "macd", g: "t", name: "MACD", desc: "Greitas EMA − lėtas EMA, signalinė linija", p: { f: 12, s: 26, g: 9 }, pane: 1, c: "--i3" },
 ];
-const PLAB = { n: "periodas", k: "k", f: "greitas", s: "lėtas", g: "signalas", d: "min. dienų" };
+const PLAB = { n: "periodas", k: "k", f: "greitas", s: "lėtas", g: "signalas", d: "min. dienų", h: "valandų (0 – visa)" };
 
 function lsGet(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } }
 function lsSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
@@ -459,6 +460,42 @@ function sunTimes(day0) {
 }
 let SESS = { bobu: null, sun: false };
 
+/* ---------- oficiali LHMT prognozė (data/forecast/<stotis>.json, renka GitHub Actions) ---------- */
+let FC = null, FCB = null;
+// prognozės valandos → žvakės po paskutinės stebėtos žvakės; h – horizontas valandomis nuo paskutinio matavimo (0 – visa)
+function fcBars(tf, h) {
+  if (!FC || !FC.rows || !FC.rows.length || !(tf === "1H" || tf === "4H" || tf === "1D")) return null;
+  const lastLT = LT[N - 1], lastBar = TIMES[TIMES.length - 1], hz = h > 0 ? lastLT + h * 3600 : Infinity;
+  const out = []; let b = null, prevC = BARS.length ? BARS[BARS.length - 1].c : null;
+  FC.rows.forEach((r) => {
+    if (r[1] == null) return;
+    const lt = r[0] + tzOff(r[0]); if (lt <= lastLT || lt > hz) return;
+    const key = bucket(tf, lt); if (key <= lastBar) return;
+    if (!b || b.time !== key) {
+      if (b) prevC = b.c;
+      b = { time: key, o: tf === "1H" && prevC != null ? prevC : r[1], h: -Infinity, l: Infinity, c: null, fs: 0, fn: 0, ws: 0, wn: 0, g: null, cs: 0, cn: 0, ps: 0, pn: 0, hs: 0, hn: 0, precip: 0, hours: 0 };
+      if (tf === "1H" && prevC != null) { b.h = prevC; b.l = prevC; }
+      out.push(b);
+    }
+    b.hours++; b.c = r[1]; b.h = Math.max(b.h, r[1]); b.l = Math.min(b.l, r[1]);
+    if (r[2] != null) { b.fs += r[2]; b.fn++; } if (r[3] != null) { b.ws += r[3]; b.wn++; } if (r[4] != null && (b.g == null || r[4] > b.g)) b.g = r[4];
+    if (r[6] != null) { b.cs += r[6]; b.cn++; } if (r[7] != null) { b.ps += r[7]; b.pn++; } if (r[8] != null) { b.hs += r[8]; b.hn++; } if (r[9] != null) b.precip += r[9];
+  });
+  out.forEach((x) => { x.feels = x.fn ? x.fs / x.fn : null; x.wind = x.wn ? x.ws / x.wn : null; x.cloud = x.cn ? x.cs / x.cn : null; x.pres = x.pn ? x.ps / x.pn : null; x.hum = x.hn ? x.hs / x.hn : null; });
+  return out.length ? out : null;
+}
+async function loadFc() {
+  try {
+    const r = await fetch("data/forecast/" + encodeURIComponent(ST.code) + ".json" + fresh()); if (!r.ok) return;
+    const j = await r.json(); const first = !FC, changed = first || FC.created !== j.created; FC = j;
+    if (!(changed && S.ind.fc.on && chart)) return;
+    build();
+    // pirmą kartą užkrovus – jei žiūrima į pabaigą, pastumti vaizdą, kad matytųsi prognozė
+    const ts = chart.timeScale(), rg = ts.getVisibleLogicalRange(), n = BARS.length;
+    if (first && FCB && rg && rg.to >= n - 3) { const wdt = rg.to - rg.from, ahead = Math.min(FCB.length, Math.round(wdt * 0.3)); ts.setVisibleLogicalRange({ from: n + ahead + 4 - wdt, to: n + ahead + 4 }); }
+  } catch (e) {}
+}
+
 /* ---------- spalvos iš temos ---------- */
 let C = {};
 function readTheme() { const cs = getComputedStyle(document.documentElement); const g = (n) => cs.getPropertyValue(n).trim();
@@ -512,17 +549,28 @@ function build() {
   else { main = chart.addSeries(LW.CandlestickSeries, { upColor: up, downColor: dn, borderVisible: false, wickUpColor: up, wickDownColor: dn, priceFormat: tfmt }); main.setData(data); }
   main.priceScale().applyOptions({ scaleMargins: { top: 0.1, bottom: on("precip") ? 0.22 : 0.08 } });
 
+  /* prognozė: blyškios žvakės į priekį (punktyrinius kontūrus piešia drawForecast) */
+  FCB = on("fc") ? fcBars(tf, P("fc").h) : null;
+  const fcLine = (col, pane, val, opts) => { if (!FCB) return; const s = chart.addSeries(LW.LineSeries, Object.assign({ color: A(col, 0.75), lineWidth: 1.5, lineStyle: 2, lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false }, opts || {}), pane || 0);
+    s.setData(FCB.map((b) => (val(b) == null ? { time: b.time } : { time: b.time, value: val(b) }))); };
+  if (FCB) {
+    if (S.type === "line") fcLine(C.accent, 0, (b) => b.c, { priceFormat: tfmt, lineWidth: 2 });
+    else { const fs = chart.addSeries(LW.CandlestickSeries, { upColor: A(up, 0.16), downColor: A(dn, 0.16), borderVisible: false, wickUpColor: A(up, 0.45), wickDownColor: A(dn, 0.45), priceFormat: tfmt, lastValueVisible: false, priceLineVisible: false });
+      fs.setData(FCB.map((b) => ({ time: b.time, open: b.o, high: b.h, low: b.l, close: b.c }))); }
+  }
+
   /* krituliai kaip apyvarta */
   if (on("precip")) {
     const s = chart.addSeries(LW.HistogramSeries, { priceScaleId: "vol", priceFormat: { type: "custom", minMove: 0.1, formatter: (v) => nf(v) + " mm" }, lastValueVisible: false, priceLineVisible: false });
     s.priceScale().applyOptions({ scaleMargins: { top: 0.82, bottom: 0 }, visible: false });
     s.setData(BARS.map((b) => ({ time: b.time, value: b.precip, color: A(b.pt === "snow" ? C.snowc : b.pt === "sleet" ? C.sleet : C.rain, 0.75) })));
     LEG.push({ pane: 0, name: "Krituliai", color: C.rain, get: (i) => nf(BARS[i].precip) + " mm" });
+    if (FCB) { const f = chart.addSeries(LW.HistogramSeries, { priceScaleId: "vol", lastValueVisible: false, priceLineVisible: false }); f.setData(FCB.map((b) => ({ time: b.time, value: b.precip, color: A(C.rain, 0.3) }))); }
   }
   const ov = (id, arr, opts, name) => { const s = chart.addSeries(LW.LineSeries, Object.assign({ lineWidth: 1.5, priceFormat: tfmt, lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false }, opts)); s.setData(ts(arr)); LEG.push({ pane: 0, name, color: opts.color, get: (i) => nf(arr[i]) + "°" }); return s; };
   if (on("norm")) ov("norm", seasonal(tf, BARS), { color: C.v("--i4"), lineStyle: 2, lineWidth: 1.5 }, "Norma " + YRS + " m.");
   if (on("twap")) ov("twap", BARS.map((b) => b.avg), { color: C.v("--i7") }, "Vidutinė");
-  if (on("feels")) ov("feels", BARS.map((b) => b.feels), { color: C.v("--i5"), lineWidth: 1 }, "Juntama");
+  if (on("feels")) { ov("feels", BARS.map((b) => b.feels), { color: C.v("--i5"), lineWidth: 1 }, "Juntama"); fcLine(C.v("--i5"), 0, (b) => b.feels, { lineWidth: 1, priceFormat: tfmt }); }
   if (on("yoy")) ov("yoy", yearAgo(tf, BARS), { color: C.v("--i2"), lineWidth: 1, lineStyle: 1 }, "Prieš metus");
   if (on("sma1")) ov("sma1", sma(closes, P("sma1").n), { color: C.v("--i1") }, "SMA " + P("sma1").n);
   if (on("sma2")) ov("sma2", sma(closes, P("sma2").n), { color: C.v("--i2") }, "SMA " + P("sma2").n);
@@ -565,18 +613,23 @@ function build() {
   if (on("wind")) { const p = sub("Vėjas"), col = C.v("--i3");
     const g = chart.addSeries(LW.HistogramSeries, { color: A(col, 0.3), priceFormat: fmtU(" m/s"), lastValueVisible: false, priceLineVisible: false }, p); g.setData(ts(BARS.map((b) => b.gmax)));
     const w = chart.addSeries(LW.LineSeries, { color: col, lineWidth: 1.5, priceFormat: fmtU(" m/s"), priceLineVisible: false }, p); w.setData(ts(BARS.map((b) => b.wind)));
+    if (FCB) { const fg = chart.addSeries(LW.HistogramSeries, { color: A(col, 0.12), priceFormat: fmtU(" m/s"), lastValueVisible: false, priceLineVisible: false }, p); fg.setData(FCB.map((b) => (b.g == null ? { time: b.time } : { time: b.time, value: b.g }))); fcLine(col, p, (b) => b.wind, { priceFormat: fmtU(" m/s") }); }
     addLeg(p, "vid.", col, (i) => nf(BARS[i].wind) + " m/s"); addLeg(p, "gūsis", A(col, 0.55), (i) => nf(BARS[i].gmax) + " m/s");
     addLeg(p, "kryptis", C.muted, (i) => (BARS[i].dir == null ? "–" : COMPASS[Math.round(BARS[i].dir / 45) % 8])); }
   if (on("pressure")) { const p = sub("Slėgis"), col = C.v("--i1");
     const s = chart.addSeries(LW.LineSeries, { color: col, lineWidth: 1.5, priceFormat: fmtU(" hPa"), priceLineVisible: false }, p); s.setData(ts(BARS.map((b) => b.pres)));
     s.createPriceLine({ price: 1013.25, color: A(C.muted, 0.6), lineStyle: 2, lineWidth: 1, axisLabelVisible: false, title: "norm." });
+    fcLine(col, p, (b) => b.pres, { priceFormat: fmtU(" hPa") });
     addLeg(p, "vid.", col, (i) => nf(BARS[i].pres) + " hPa"); addLeg(p, "Δ", C.muted, (i) => (BARS[i].po == null ? "–" : sg(BARS[i].pc - BARS[i].po))); }
   if (on("humidity")) { const p = sub("Drėgmė"), col = C.rain;
     const s = chart.addSeries(LW.AreaSeries, { lineColor: col, topColor: A(col, 0.28), bottomColor: A(col, 0.02), lineWidth: 1.5, priceFormat: fmtU(" %", 0), priceLineVisible: false }, p); s.setData(ts(BARS.map((b) => b.hum)));
+    fcLine(col, p, (b) => b.hum, { priceFormat: fmtU(" %", 0) });
     addLeg(p, "vid.", col, (i) => nf(BARS[i].hum, 0) + " %"); }
   if (on("cloud")) { const p = sub("Debesuotumas"), col = C.v("--i4");
     const s = chart.addSeries(LW.HistogramSeries, { priceFormat: fmtU(" %", 0), priceLineVisible: false, lastValueVisible: false }, p);
     s.setData(BARS.map((b) => (b.cloud == null ? { time: b.time } : { time: b.time, value: b.cloud, color: A(col, 0.2 + (b.cloud / 100) * 0.7) })));
+    if (FCB) { const fcl = chart.addSeries(LW.HistogramSeries, { priceFormat: fmtU(" %", 0), priceLineVisible: false, lastValueVisible: false }, p);
+      fcl.setData(FCB.map((b) => (b.cloud == null ? { time: b.time } : { time: b.time, value: b.cloud, color: A(col, 0.08 + (b.cloud / 100) * 0.25) }))); }
     addLeg(p, "vid.", col, (i) => nf(BARS[i].cloud, 0) + " %"); }
   if (on("snow")) { const p = sub("Sniego danga"), col = C.snowc;
     const s = chart.addSeries(LW.AreaSeries, { lineColor: col, topColor: A(col, 0.45), bottomColor: A(col, 0.05), lineWidth: 1.5, priceFormat: fmtU(" cm", 0), priceLineVisible: false }, p); s.setData(ts(BARS.map((b) => b.smax)));
@@ -605,7 +658,11 @@ function build() {
 
   chart.subscribeCrosshairMove((param) => {
     let i = -1;
-    if (param && param.point && param.logical != null) i = Math.max(0, Math.min(BARS.length - 1, Math.round(param.logical)));
+    if (param && param.point && param.logical != null) {
+      const k = Math.round(param.logical) - BARS.length;
+      if (FCB && k >= 0) { showFc(Math.min(k, FCB.length - 1)); if (DR.tool !== "cursor" || DR.drag || DR.hover >= 0) bump(); return; }
+      i = Math.max(0, Math.min(BARS.length - 1, Math.round(param.logical)));
+    }
     showIdx(i < 0 ? BARS.length - 1 : i);
     if (DR.tool !== "cursor" || DR.drag || DR.hover >= 0) bump();
   });
@@ -613,7 +670,7 @@ function build() {
 
   /* rodomas intervalas */
   if (keep) { chart.timeScale().setVisibleLogicalRange({ from: timeToLogical(keep[0]), to: timeToLogical(keep[1]) }); }
-  else { const n = { "1H": 24 * 10, "4H": 6 * 45, "1D": 200, "1W": 120, "1M": 70 }[tf]; chart.timeScale().setVisibleLogicalRange({ from: BARS.length - n, to: BARS.length + 4 }); }
+  else { const n = { "1H": 24 * 10, "4H": 6 * 45, "1D": 200, "1W": 120, "1M": 70 }[tf]; const ahead = FCB ? Math.min(FCB.length, Math.round(n * 0.3)) : 0; chart.timeScale().setVisibleLogicalRange({ from: BARS.length - n + ahead, to: BARS.length + ahead + 4 }); }
 
   /* viršutinė kaina */
   const lb = BARS[BARS.length - 1], pb = BARS[BARS.length - 2];
@@ -638,6 +695,14 @@ function showIdx(i) {
     `${prev ? sg(b.c - prev.c) + "°" : ""}</div>` + (legs ? `<div class="row">${legs}</div>` : "");
   PANES.forEach((p, k) => { const el = $("pl" + k); if (el) el.innerHTML = `<span class="n">${p.name}</span>` + p.legs.map((L) => `<span style="color:${L.color}">${L.name}</span> ${L.get(i)}`).join("&ensp;"); });
   renderSide(b, i);
+}
+function showFc(k) {
+  const b = FCB[k]; if (!b) return; curIdx = -1;
+  const col = b.c - b.o >= 0 ? C.warm : C.cool, made = FC.created ? FC.created.slice(5, 16).replace(" ", " ") + " UTC" : "";
+  $("legend").innerHTML = `<div class="title">${ST.name} · <span style="color:${C.accent}">LHMT prognozė</span> · ${periodLabel(S.tf, b.time)} <span>· ${FC.place ? FC.place.name : ""}, sudaryta ${made}</span></div>` +
+    `<div class="row" style="color:${col}"><span class="k">A</span> ${nf(b.o)} <span class="k">M</span> ${nf(b.h)} <span class="k">m</span> ${nf(b.l)} <span class="k">U</span> ${nf(b.c)}</div>` +
+    `<div class="row"><span style="color:${C.rain}">Krituliai</span> ${nf(b.precip)} mm&ensp;<span style="color:${C.v("--i5")}">Juntama</span> ${nf(b.feels)}°&ensp;<span style="color:${C.v("--i3")}">Vėjas</span> ${nf(b.wind)} m/s, gūsiai ${nf(b.g)}&ensp;<span style="color:${C.v("--i4")}">Debesuotumas</span> ${nf(b.cloud, 0)} %&ensp;<span style="color:${C.v("--i1")}">Slėgis</span> ${nf(b.pres)} hPa</div>`;
+  PANES.forEach((p, j) => { const el = $("pl" + j); if (el) el.innerHTML = `<span class="n">${p.name}</span> <span style="color:${C.accent}">prognozė</span>`; });
 }
 function compassSVG(dir, steady) {
   const a = dir == null ? null : dir + 180;
@@ -962,6 +1027,26 @@ function drawSessions(w, h) {
     });
   }
 }
+function drawForecast(w, h) {
+  if (!FCB || !main) return;
+  const ts = chart.timeScale(), n = BARS.length, x0 = LX(n - 0.5);
+  if (x0 != null && x0 < w) {
+    ctx.strokeStyle = A(C.accent, 0.7); ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
+    ctx.beginPath(); ctx.moveTo(Math.round(x0) + 0.5, 0); ctx.lineTo(Math.round(x0) + 0.5, h); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = C.accent; ctx.font = "600 11px IBM Plex Sans, system-ui, sans-serif"; ctx.textAlign = "left"; ctx.fillText("Prognozė →", Math.round(x0) + 5, h - 8);
+  }
+  if (S.type === "line") return;
+  const sp = (ts.logicalToCoordinate(n + 1) || 0) - (ts.logicalToCoordinate(n) || 0), bw = Math.max(1, Math.floor(sp * 0.8));
+  if (bw < 3) return;
+  ctx.setLineDash([3, 2]); ctx.lineWidth = 1;
+  FCB.forEach((b, k) => {
+    const x = ts.logicalToCoordinate(n + k); if (x == null || x < -bw || x > w + bw) return;
+    const yo = main.priceToCoordinate(b.o), yc = main.priceToCoordinate(b.c); if (yo == null || yc == null) return;
+    const y0 = Math.min(yo, yc), hh = Math.max(1, Math.abs(yc - yo));
+    ctx.strokeStyle = A(b.c >= b.o ? C.warm : C.cool, 0.85); ctx.strokeRect(Math.round(x - bw / 2) + 0.5, Math.round(y0) + 0.5, bw - 1, Math.round(hh));
+  });
+  ctx.setLineDash([]);
+}
 function renderDrawings() {
   const dpr = window.devicePixelRatio || 1, W2 = box.clientWidth, H2 = box.clientHeight;
   if (cv.width !== Math.round(W2 * dpr) || cv.height !== Math.round(H2 * dpr)) { cv.width = Math.round(W2 * dpr); cv.height = Math.round(H2 * dpr); cv.style.width = W2 + "px"; cv.style.height = H2 + "px"; }
@@ -969,6 +1054,7 @@ function renderDrawings() {
   if (!chart) return; const { w, h } = geom();
   ctx.save(); ctx.beginPath(); ctx.rect(0, 0, w, h); ctx.clip();
   drawSessions(w, h);
+  drawForecast(w, h);
   DR.items.forEach((d, k) => drawItem(d, k === DR.sel || k === DR.hover));
   if (DR.temp) drawItem(DR.temp, true, true);
   if (DR.measure) drawItem(DR.measure, true);
@@ -1009,14 +1095,14 @@ gi.onchange = () => { if (!gi.value) return; const t = Date.UTC(+gi.value.slice(
 
 function renderPop() {
   const row = (d) => { const st = S.ind[d.id]; const col = d.c ? C.v(d.c) : d.id === "precip" ? C.rain : d.id === "zero" ? C.cool : C.warm;
-    const ps = Object.keys(st.p).map((k) => `<label>${PLAB[k]} <input type="number" id="p-${d.id}-${k}" data-id="${d.id}" data-k="${k}" value="${st.p[k]}" min="${k === "k" ? 0.5 : 2}" max="400" step="${k === "k" ? 0.5 : 1}"></label>`).join("");
+    const ps = Object.keys(st.p).map((k) => `<label>${PLAB[k]} <input type="number" id="p-${d.id}-${k}" data-id="${d.id}" data-k="${k}" value="${st.p[k]}" min="${k === "k" ? 0.5 : k === "h" ? 0 : 2}" max="${k === "h" ? 240 : 400}" step="${k === "k" ? 0.5 : 1}"></label>`).join("");
     return `<div class="irow"><input type="checkbox" id="i-${d.id}" data-id="${d.id}" ${st.on ? "checked" : ""}><span class="sw" style="background:${col}"></span>
       <label class="nm" for="i-${d.id}">${d.name}${d.pane ? ' <span class="chip">atskiras langas</span>' : ""}<small>${d.desc}</small></label><div class="pr">${ps}</div></div>`; };
   $("pop").innerHTML = `<div class="pophead"><h3>Orų duomenys</h3><button class="btn" id="popClose" aria-label="Uždaryti">✕</button></div>${IND.filter((d) => d.g === "w").map(row).join("")}
     <h3>Techniniai indikatoriai</h3>${IND.filter((d) => d.g === "t").map(row).join("")}`;
   $("popClose").onclick = togglePop;
   $("pop").querySelectorAll('input[type=checkbox]').forEach((el) => (el.onchange = () => { S.ind[el.dataset.id].on = el.checked; saveS(); build(); }));
-  $("pop").querySelectorAll('input[type=number]').forEach((el) => (el.onchange = () => { const v = parseFloat(el.value); if (!(v > 0)) return; S.ind[el.dataset.id].p[el.dataset.k] = v; S.ind[el.dataset.id].on = true; saveS(); renderPop(); build(); }));
+  $("pop").querySelectorAll('input[type=number]').forEach((el) => (el.onchange = () => { const v = parseFloat(el.value); if (!(v > 0) && !(el.dataset.k === "h" && v === 0)) return; S.ind[el.dataset.id].p[el.dataset.k] = v; S.ind[el.dataset.id].on = true; saveS(); renderPop(); build(); }));
 }
 function togglePop() { const p = $("pop"); p.hidden = !p.hidden; $("indBtn").setAttribute("aria-pressed", String(!p.hidden)); $("indBtn").setAttribute("aria-expanded", String(!p.hidden)); if (!p.hidden) renderPop(); }
 $("indBtn").onclick = togglePop;
@@ -1088,6 +1174,7 @@ async function liveTick(first) {
     if (!LV.on) setLive("off", "Archyvas", "Gyvų duomenų šaltinis nepasiekiamas – rodomas archyvas iki " + LAST + ". Spustelėkite, kad bandytumėte dar kartą.");
     else setLive("err", "Ryšio klaida", "Nepavyko atnaujinti (" + e.message + "). Spustelėkite, kad bandytumėte dar kartą.");
   } finally { LV.busy = false; }
+  if (!first) loadFc();
   clearTimeout(LV.timer); LV.timer = setTimeout(() => liveTick(false), 10 * 60 * 1000);
 }
 function refreshLive() { if (LV.busy) return; setLive("load", "Atnaujinama…", "Ieškoma naujausių matavimų"); liveTick(!LV.on); }
@@ -1139,7 +1226,7 @@ $("symQ").onkeydown = (e) => {
 $("symDlg").onclick = (e) => { if (e.target.id === "symDlg") closeSym(); };
 window.addEventListener("hashchange", () => { const c = decodeURIComponent(location.hash.slice(1)); if (c && c !== ST.code && STS.some((x) => x.code === c)) location.reload(); });
 
-renderTop(); renderRail(); build(); loop(); liveTick(true);
+renderTop(); renderRail(); build(); loop(); liveTick(true); loadFc();
 }
 if (window.__WX) boot();
 else (async () => {

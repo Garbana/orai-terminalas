@@ -43,7 +43,7 @@ jobs:
               sleep 60; continue
             fi
             unreachable=0
-            git add data/live
+            git add data/live data/forecast
             if ! git diff --cached --quiet; then
               git commit -q -m "Matavimai $(date -u +'%Y-%m-%d %H:%M') UTC"
               git push -q origin HEAD:main || { git pull -q --rebase origin main && git push -q origin HEAD:main; } || true

@@ -5,6 +5,8 @@
 //   t – valandos pradžia, UNIX sekundės (UTC); reikšmės – tikri vienetai (°C, m/s, hPa, mm).
 //   Eilutės tik po archyvo (data/st/<stotis>.json) pabaigos – puslapis jas prideda prie archyvo.
 // data/live/snapshot.json: { <stotis>: [t, temperatūra, sąlygos] } – stočių sąrašui.
+// data/forecast/<stotis>.json: { created, fetched, place, rows: [[t, T, F, W, G, D, C, P, H, R, sąlygos], ...] } –
+//   oficiali LHMT prognozė (long-term) artimiausiai vietovei; atnaujinama ne dažniau kaip kas 50 min.
 
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 
@@ -79,6 +81,48 @@ for (const st of stations) {
 }
 
 await writeFile(new URL("live/snapshot.json", ROOT), JSON.stringify(snapshot));
+await forecasts().catch((e) => console.warn("prognozės: " + e.message));
 const iso = (t) => (t ? new Date(t * 1000).toISOString().slice(0, 16).replace("T", " ") + " UTC" : "–");
 console.log(`Stočių: ${ok} gerai, ${fail} nepavyko. Naujų valandų: ${added}. Naujausias LHMT matavimas: ${iso(newestObs)}.`);
 if (!ok) process.exit(1);
+
+// ---------- oficialios prognozės ----------
+async function getJson(url) {
+  const res = await fetch(url, { headers: { accept: "application/json", "user-agent": "orai-terminalas (GitHub Actions)" }, signal: AbortSignal.timeout(20000) });
+  if (!res.ok) throw new Error(url + ": HTTP " + res.status);
+  await sleep(400);
+  return res.json();
+}
+async function forecasts() {
+  const dir = new URL("forecast/", ROOT);
+  await mkdir(dir, { recursive: true });
+  // stotis → artimiausia prognozių vietovė (skaičiuojama vieną kartą)
+  const mapFile = new URL("places.json", dir);
+  let map = await readJson(mapFile, null);
+  if (!map || stations.some((st) => !map[st.code])) {
+    const places = await getJson(API.replace("stations/", "places"));
+    const rad = Math.PI / 180, km = (a, b, c, d) => 6371 * Math.acos(Math.min(1, Math.sin(a * rad) * Math.sin(c * rad) + Math.cos(a * rad) * Math.cos(c * rad) * Math.cos((d - b) * rad)));
+    map = {};
+    for (const st of stations) {
+      let best = null;
+      for (const p of places) { if (p.countryCode && p.countryCode !== "LT") continue; const k = km(st.lat, st.lon, p.coordinates.latitude, p.coordinates.longitude); if (!best || k < best.km) best = { code: p.code, name: p.name, km: Math.round(k * 10) / 10 }; }
+      map[st.code] = best;
+    }
+    await writeFile(mapFile, JSON.stringify(map));
+  }
+  let ok = 0, skip = 0;
+  for (const st of stations) {
+    const place = map[st.code]; if (!place) continue;
+    const file = new URL(st.code + ".json", dir), prev = await readJson(file, null);
+    if (prev && Date.now() - Date.parse(prev.fetched) < 50 * 60 * 1000) { skip++; continue; }
+    try {
+      const j = await getJson(API.replace("stations/", "places/") + place.code + "/forecasts/long-term");
+      if (prev && prev.created === j.forecastCreationTimeUtc) { skip++; continue; } // nauja prognozė dar neišleista – nėra ką rašyti
+      const rows = (j.forecastTimestamps || []).map((o) => [Date.parse(o.forecastTimeUtc.replace(" ", "T") + "Z") / 1000, num(o.airTemperature), num(o.feelsLikeTemperature),
+        num(o.windSpeed), num(o.windGust), num(o.windDirection), num(o.cloudCover), num(o.seaLevelPressure), num(o.relativeHumidity), num(o.totalPrecipitation), o.conditionCode || null]);
+      await writeFile(file, JSON.stringify({ created: j.forecastCreationTimeUtc, fetched: new Date().toISOString(), place, rows }));
+      ok++;
+    } catch (e) { console.warn("prognozė " + st.code + ": " + e.message); }
+  }
+  console.log(`Prognozės: atnaujinta ${ok}, praleista ${skip}.`);
+}
