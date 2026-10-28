@@ -964,7 +964,7 @@ async function liveTick(first) {
     if (changed || first) applyLive();
     const lastT = RAW.t0 + (N - 1) * 3600, late = Date.now() / 1000 - lastT > 3 * 3600;
     setLive(late ? "load" : "on", (late ? "Vėluoja · " : "Gyvai · ") + when(lastT),
-      "Paskutinis matavimas " + when(lastT) + " Vilniaus laiku. Serveris duomenis renka kas 30 min." + (j.updated ? " Paskutinis rinkimas " + when(Date.parse(j.updated) / 1000) + "." : ""));
+      "Paskutinis matavimas " + when(lastT) + " Vilniaus laiku. Nauji matavimai tikrinami kas 15 min." + (j.updated ? " Paskutinis rinkimas " + when(Date.parse(j.updated) / 1000) + "." : ""));
   } catch (e) {
     if (!LV.on) { setLive("off", "Archyvas", "Gyvų duomenų šaltinis nepasiekiamas – rodomas archyvas iki " + LAST + "."); return; }
     setLive("err", "Ryšio klaida", "Nepavyko atnaujinti (" + e.message + "). Bandysiu po 10 min.");

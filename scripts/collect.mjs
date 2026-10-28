@@ -1,5 +1,5 @@
 // Renka naujausius LHMT stočių matavimus iš api.meteo.lt ir kaupia juos data/live/ aplanke.
-// Paleidžia GitHub Actions kas 30 min. (žr. .github/workflows/collect.yml). Priklausomybių nėra – Node 20+.
+// Paleidžia GitHub Actions kas 15 min. (žr. .github/workflows/collect.yml). Priklausomybių nėra – Node 20+.
 //
 // data/live/<stotis>.json: { updated, rows: [[t, T, F, W, G, D, C, P, H, R, S, sąlygos], ...] }
 //   t – valandos pradžia, UNIX sekundės (UTC); reikšmės – tikri vienetai (°C, m/s, hPa, mm).
@@ -62,7 +62,8 @@ for (const st of stations) {
         num(o.precipitation), num(o.snowDepth), o.conditionCode || null]);
     }
     const rows = [...byT.values()].sort((a, b) => a[0] - b[0]);
-    await writeFile(file, JSON.stringify({ updated, rows }));
+    // rašo tik kai yra naujų ar pataisytų matavimų – kitaip nebūtų ką įrašyti į git
+    if (JSON.stringify(rows) !== JSON.stringify(prev.rows)) await writeFile(file, JSON.stringify({ updated, rows }));
 
     const newest = rows[rows.length - 1];
     if (newest) snapshot[st.code] = [newest[0], newest[1], newest[11]];

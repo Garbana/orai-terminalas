@@ -2,7 +2,8 @@ name: Rinkti matavimus
 
 on:
   schedule:
-    - cron: "7,37 * * * *"
+    # GitHub cron kartais vėluoja ar praleidžia paleidimus, todėl tikrinama dažniau nei LHMT skelbia (kas valandą)
+    - cron: "7,22,37,52 * * * *"
   workflow_dispatch:
 
 permissions:
