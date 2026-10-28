@@ -846,7 +846,8 @@ function drawPosition(d, sel) {
     ctx.beginPath(); ctx.moveTo(g.x0, g.ye); ctx.lineTo(xe, Y(res.price)); ctx.stroke(); ctx.setLineDash([]);
     ctx.fillStyle = ctx.strokeStyle; ctx.beginPath(); ctx.arc(xe, Y(res.price), 3.5, 0, Math.PI * 2); ctx.fill();
   }
-  // etiketės
+  // etiketės – tik pažymėjus ar užvedus pelę, kad neužstotų grafiko
+  if (!sel) return;
   const rr = reward / (risk || 1e-9), up = dir > 0;
   const tpTxt = `Tikslas ${nf(d.tp)}° · ${sg(d.tp - d.a.p)}° · ${nf(rr, 1)}R`, slTxt = `Stop ${nf(d.sl)}° · ${sg(d.sl - d.a.p)}° · −1R`;
   pill(tpTxt, g.x0 + 4, g.yt + (up ? -12 : 12), A(ok, 0.95), C.bg);
@@ -858,7 +859,7 @@ function drawPosition(d, sel) {
     : res.res === "end" ? [`Laikas baigėsi · ${sg(res.pnl)}° (${sg(res.r, 2)}R)`, C.muted]
     : [`${up ? "Long" : "Short"} · rizika/pelnas 1:${nf(rr, 1)}`, C.muted];
   pill(badge[0], g.x0 + 4, g.ye + (up ? 12 : -12) * (Math.abs(g.ys - g.ye) > 30 ? 1 : -1), badge[1], C.bg);
-  if (sel) { handle(g.x0, g.yt); handle(g.x0, g.ys); handle(g.x1, g.ye); }
+  handle(g.x0, g.yt); handle(g.x0, g.ys); handle(g.x1, g.ye);
 }
 function renderDrawings() {
   const dpr = window.devicePixelRatio || 1, W2 = box.clientWidth, H2 = box.clientHeight;
